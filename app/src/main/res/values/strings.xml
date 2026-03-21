@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">TG Proxy Rewrite KTS</string>
+    <string name="dcip_default">2:149.154.167.220\n4:149.154.167.220\n203:149.154.167.220</string>
+    <string name="dcip_hint">DC:IP (one per line)</string>
+    <string name="host_default">127.0.0.1</string>
+    <string name="port_default">1080</string>
+    <string name="name">Telegram WS Proxy</string>
+    <string name="proxy_off">Proxy OFF</string>
+    <string name="proxy_on">Proxy ON</string>
+    <string name="load_conf">Load Config</string>
+    <string name="save_conf">Save Config</string>
+</resources>

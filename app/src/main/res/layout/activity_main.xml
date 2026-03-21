@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <TextView
+        android:id="@+id/textView"
+        android:layout_width="0dp"
+        android:layout_height="60dp"
+        android:text="@string/name"
+        android:textAlignment="center"
+        android:textSize="34sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.046" />
+
+    <EditText
+        android:id="@+id/port"
+        android:layout_width="300dp"
+        android:layout_height="45dp"
+        android:ems="10"
+        android:inputType="number"
+        android:text="@string/port_default"
+        app:layout_constraintBottom_toTopOf="@+id/dcip"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/host" />
+
+    <EditText
+        android:id="@+id/host"
+        android:layout_width="300dp"
+        android:layout_height="45dp"
+        android:ems="10"
+        android:inputType="text"
+        android:text="@string/host_default"
+        app:layout_constraintBottom_toTopOf="@+id/toggleButton"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textView"
+        app:layout_constraintVertical_bias="0.121" />
+
+    <EditText
+        android:id="@+id/dcip"
+        android:layout_width="300dp"
+        android:layout_height="90dp"
+        android:ems="10"
+        android:gravity="start|top"
+        android:hint="@string/dcip_hint"
+        android:inputType="textMultiLine"
+        android:text="@string/dcip_default"
+        app:layout_constraintBottom_toTopOf="@+id/toggleButton"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.504"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textView"
+        app:layout_constraintVertical_bias="0.806" />
+
+    <Button
+        android:id="@+id/toggleButton"
+        android:layout_width="300dp"
+        android:layout_height="50dp"
+        android:text="@string/proxy_off"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.495"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textView"
+        app:layout_constraintVertical_bias="0.723" />
+
+    <TextView
+        android:id="@+id/host_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Host"
+        app:layout_constraintBottom_toTopOf="@+id/host"
+        app:layout_constraintStart_toStartOf="@+id/host" />
+
+    <TextView
+        android:id="@+id/port_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Port"
+        app:layout_constraintBottom_toTopOf="@+id/port"
+        app:layout_constraintStart_toStartOf="@+id/port" />
+
+    <TextView
+        android:id="@+id/dcip_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="DC:IP (one per line)"
+        app:layout_constraintBottom_toTopOf="@+id/dcip"
+        app:layout_constraintStart_toStartOf="@+id/dcip" />
+
+    <Button
+        android:id="@+id/save_button"
+        android:layout_width="130dp"
+        android:layout_height="50dp"
+        android:layout_marginTop="16dp"
+        android:text="@string/save_conf"
+        app:layout_constraintEnd_toStartOf="@+id/load_button"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="@+id/toggleButton"
+        app:layout_constraintTop_toBottomOf="@+id/toggleButton" />
+
+    <Button
+        android:id="@+id/load_button"
+        android:layout_width="130dp"
+        android:layout_height="50dp"
+        android:layout_marginTop="16dp"
+        android:text="@string/load_conf"
+        app:layout_constraintEnd_toEndOf="@+id/toggleButton"
+        app:layout_constraintTop_toBottomOf="@+id/toggleButton" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
