@@ -1,6 +1,7 @@
 package soft.shadlv.twp_rewritekts;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.Bundle;
 
@@ -16,12 +17,15 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import android.content.Intent;
 import android.os.Build;
+
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Scanner;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+import com.google.android.material.snackbar.Snackbar;
+
+public class MainActivity extends AppCompatActivity implements View.OnClickListener, ProxyEventListener {
     private EditText port_et;
     private EditText host_et;
     private EditText dcip_et;
@@ -29,6 +33,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        StaticEventManager.addListener(this);
         super.onCreate(savedInstanceState);
         if (Build.VERSION.SDK_INT >= 33)
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
@@ -113,6 +118,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             intent.putExtra("host", getUHost());
             intent.putExtra("port", getUPort());
             intent.putExtra("dcip", getUDCIP());
+
             if (proxy_switch.getText().toString().equals(getString(R.string.proxy_off)))
             {
                 proxy_switch.setText(R.string.proxy_on);
@@ -133,6 +139,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
         else if (v.getId() == R.id.load_button) {
             load_conf();
+        }
+    }
+
+    @Override
+    public void broadcastEvent(String event){
+        if (event == null) return;
+        if (event.equals("event.proxy.useroff"))
+                proxy_switch.setText(R.string.proxy_off);
+        else if (event.equals("event.proxy.on")){
+                proxy_switch.setText(R.string.proxy_on);
+                Snackbar.make(proxy_switch, "Прокси успешно запущен.", Snackbar.LENGTH_SHORT).show();
+        }
+        else{
+                Log.d("idk", event);
+                proxy_switch.setText(R.string.proxy_off);
+                Snackbar.make(proxy_switch, String.format("Ошибка: %s", event), Snackbar.LENGTH_SHORT).show();
         }
     }
 }

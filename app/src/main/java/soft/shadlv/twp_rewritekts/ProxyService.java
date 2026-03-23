@@ -1,5 +1,6 @@
 package soft.shadlv.twp_rewritekts;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -16,10 +17,14 @@ import androidx.core.app.NotificationCompat;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 
+import java.util.Objects;
+
+
 public class ProxyService extends Service {
     private ProxyControl proxy;
     private static final String CHANNEL_ID = "ProxyChannel";
     private volatile boolean isRunning = false;
+    private String proxyResult;
 
     @Override
     public void onCreate() {
@@ -30,27 +35,43 @@ public class ProxyService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("TG WS Proxy работает")
-                .setContentText("ну тип работает и ч")
+                .setContentTitle("TG WS Proxy")
+                .setContentText("waiting for message")
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                 .build();
 
         startForeground(1, notification);
-        if (!Python.isStarted()) {
-            Python.start(new AndroidPlatform(this));
+        new Thread(() -> {
+            if (!Python.isStarted()) {
+                Python.start(new AndroidPlatform(this));
+            }
+            proxy = new ProxyControl();
+            if (!isRunning) {
+                isRunning = true;
+                proxyResult = proxy.start_and_check(
+                        intent.getStringExtra("host"),
+                        intent.getIntExtra("port", 1080),
+                        intent.getStringExtra("dcip")
+                );
+            }
+        }).start();
+        if (Objects.equals(proxyResult, "SUCCESS") || proxyResult == null){
+            proxyResult = "";
+            proxyResult = String.format("Работает на %s:%d", intent.getStringExtra("host"), intent.getIntExtra("port", 1080));
+            StaticEventManager.triggerEvent("event.proxy.on");
         }
-        proxy = new ProxyControl();
-        if (!isRunning) {
-            isRunning = true;
-            new Thread(
-                    () -> proxy.start_proxy(
-                            intent.getStringExtra("host"),
-                            intent.getIntExtra("port", 1080),
-                            intent.getStringExtra("dcip")
-                    )
-            ).start();
+        else{
+            StaticEventManager.triggerEvent(proxyResult);
+            stopSelf();
         }
-
+        Log.d("idk", proxyResult);
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        Notification upd = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("TG WS Proxy")
+                .setContentText(proxyResult)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .build();
+        manager.notify(1, upd);
         return START_STICKY;
     }
 
@@ -67,13 +88,9 @@ public class ProxyService extends Service {
     @Override
     public void onDestroy() {
         Log.d("idk", "proxy stopping");
-//        synchronized (lock) {
-//            isRunning = false;
-//            lock.notifyAll();
-//            proxyThread.interrupt();
-//        }
         isRunning = false;
-        proxy.stop_proxy();
+        if (proxy != null)
+            proxy.stop_proxy();
         super.onDestroy();
     }
 
