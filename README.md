@@ -1,4 +1,6 @@
 # tgwsp-android-rewrite
+### Известные баги:
+- Невозможно остановить прокси
 
 # Установка из сборки
 ### Скачать можно из [вкладки релизов](https://github.com/LemoLev/tgwsp-android-rewrite/releases/tag/latest)
