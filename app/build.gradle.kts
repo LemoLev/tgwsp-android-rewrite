@@ -67,7 +67,7 @@ android {
 
             // Specifies which ABIs to include in separate APKs
             // You can include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
-            include("armeabi-v7a", "arm64-v8a")
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
 
             // Optional: If set to false (default), a universal APK containing all ABIs is not generated.
             // If set to true, a universal APK will also be built alongside the specific ones.
