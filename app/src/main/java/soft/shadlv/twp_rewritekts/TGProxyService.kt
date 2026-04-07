@@ -119,7 +119,6 @@ class TGProxyService : LifecycleService() {
     }
 
     private fun createNotificationChannel() {
-        // ID канала должен совпадать с тем, что ты передаешь в NotificationCompat.Builder
         val name = "TG Proxy подготовка"
         val descriptionText = "Уведомления о включении прокси-сервера"
         val importance =
@@ -129,7 +128,6 @@ class TGProxyService : LifecycleService() {
             description = descriptionText
         }
 
-        // Получаем системный менеджер и регистрируем канал
         val notificationManager: NotificationManager =
             getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 

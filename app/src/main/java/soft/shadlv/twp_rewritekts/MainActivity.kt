@@ -109,7 +109,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
             }
         }
     ) { padding ->
-        LazyColumn( // Используем список, если конфигов станет много
+        LazyColumn(
             modifier = Modifier
                 .padding(padding)
                 .padding(16.dp),
@@ -172,11 +172,10 @@ fun GlassToggleButton(
 ) {
     val isProxyActive by ProxyManager.isRunning.collectAsStateWithLifecycle()
 
-    // 1. Анимация цветов и прозрачности в зависимости от состояния
     val targetBackgroundColor = if (isProxyActive) {
-        Color.Red.copy(alpha = 0.15f) // Чуть красного фона при активации
+        Color.Red.copy(alpha = 0.15f)
     } else {
-        Color.White.copy(alpha = 0.08f) // Чистое матовое стекло при покое
+        Color.White.copy(alpha = 0.08f)
     }
 
     val backgroundColor by animateColorAsState(targetBackgroundColor, label = "color")
@@ -184,27 +183,25 @@ fun GlassToggleButton(
     val targetBorderAlpha = if (isProxyActive) 0.5f else 0.2f
     val borderAlpha by animateFloatAsState(targetBorderAlpha, label = "alpha")
 
-    // 2. Многослойный контейнер кнопки
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
-            .clip(RoundedCornerShape(24.dp)) // Скругляем
-            .clickable { onClick() } // Обработка клика
+            .clip(RoundedCornerShape(24.dp))
+            .clickable { onClick() }
             .background(backgroundColor)
             .border(
                 width = 1.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = borderAlpha + 0.1f), // Сверху ярче
-                        Color.White.copy(alpha = borderAlpha)         // Снизу тусклее
+                        Color.White.copy(alpha = borderAlpha + 0.1f),
+                        Color.White.copy(alpha = borderAlpha)
                     )
                 ),
                 shape = RoundedCornerShape(24.dp)
             ),
         contentAlignment = Alignment.Center
     ) {
-        // 3. Контент внутри кнопки (иконка + текст)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 16.dp)
