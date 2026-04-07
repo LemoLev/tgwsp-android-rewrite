@@ -1,160 +1,234 @@
-package soft.shadlv.twp_rewritekts;
+package soft.shadlv.twp_rewritekts
 
-import android.Manifest;
-import android.annotation.SuppressLint;
-import android.content.Context;
-import android.os.Bundle;
+import android.Manifest
+import android.os.Build
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Done
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import soft.shadlv.twp_rewritekts.ui.theme.TGProxyTheme
 
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.app.ActivityCompat;
+class MainActivity : ComponentActivity() {
 
-import android.util.Log;
-import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
-import android.content.Intent;
-import android.os.Build;
-
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.Scanner;
-
-import com.google.android.material.snackbar.Snackbar;
-
-public class MainActivity extends AppCompatActivity implements View.OnClickListener, ProxyEventListener {
-    private EditText port_et;
-    private EditText host_et;
-    private EditText dcip_et;
-    private Button proxy_switch;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        StaticEventManager.addListener(this);
-        super.onCreate(savedInstanceState);
-        if (Build.VERSION.SDK_INT >= 33)
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
-        setContentView(R.layout.activity_main);
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-            return insets;
-        });
-        port_et = findViewById(R.id.port);
-        host_et = findViewById(R.id.host);
-        dcip_et = findViewById(R.id.dcip);
-        proxy_switch = findViewById(R.id.toggleButton);
-        proxy_switch.setOnClickListener(this);
-        Button configSave = findViewById(R.id.save_button);
-        configSave.setOnClickListener(this);
-        Button configLoad = findViewById(R.id.load_button);
-        configLoad.setOnClickListener(this);
+    private val viewModel: ProxyViewModel by viewModels {
+        ProxyViewModelFactory(application)
     }
 
-    private void load_conf() {
-        String filename = "config.conf";
-        StringBuilder stringBuilder = new StringBuilder();
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-        try (FileInputStream fis = openFileInput(filename); Scanner scanner = new Scanner(fis)) {
-            while (scanner.hasNextLine()) {
-                stringBuilder.append(scanner.nextLine());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
+
+        enableEdgeToEdge()
+        setContent {
+            TGProxyTheme {
+                ProxyScreen(viewModel)
             }
-        } catch (IOException e) {
-            Log.v("idk","file not found");
-        }
-
-        String loadedContents = stringBuilder.toString();
-        Log.d("idk", loadedContents);
-        for (String line: loadedContents.split("&")) {
-            switch (line.split("=")[0]){
-                case "host":
-                    host_et.setText(line.split("=")[1]);
-                    break;
-                case "port":
-                    port_et.setText(line.split("=")[1]);
-                    break;
-                case "dcip":
-                    dcip_et.setText(line.split("=")[1].replace(';', '\n'));
-                    break;
-                default:
-                    Log.e("idk", "config variable not found");
-                    break;
-            }
-        }
-    }
-
-    private void save_conf() {
-        String filename = "config.conf";
-        String fileContents = String.format("host=%s&port=%s&dcip=%s", getUHost(), getUPort(), getUDCIP().replace('\n', ';'));
-        try {
-            FileOutputStream fos = openFileOutput(filename, Context.MODE_PRIVATE);
-            fos.write(fileContents.getBytes());
-            fos.close();
-        } catch (IOException e) {
-            Log.e("idk", "some io error idfk");
-        }
-    }
-
-    private int getUPort() {
-        String userInput = port_et.getText().toString();
-        return Integer.parseInt(userInput);
-    }
-
-    private String getUHost(){
-        return host_et.getText().toString();
-    }
-
-    private String getUDCIP(){
-        return dcip_et.getText().toString();
-    }
-
-    @Override
-    public void onClick(View v) {
-        if (v.getId() == R.id.toggleButton) {
-            Intent intent = new Intent(this, ProxyService.class);
-            intent.putExtra("host", getUHost());
-            intent.putExtra("port", getUPort());
-            intent.putExtra("dcip", getUDCIP());
-
-            if (proxy_switch.getText().toString().equals(getString(R.string.proxy_off)))
-            {
-                proxy_switch.setText(R.string.proxy_on);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent);
-                } else {
-                    startService(intent);
-                }
-            }
-            else
-            {
-                proxy_switch.setText(R.string.proxy_off);
-                stopService(intent);
-            }
-        }
-        else if (v.getId() == R.id.save_button) {
-            save_conf();
-        }
-        else if (v.getId() == R.id.load_button) {
-            load_conf();
-        }
-    }
-
-    @Override
-    public void broadcastEvent(String event){
-        if (event == null) return;
-        if (event.equals("event.proxy.useroff"))
-                proxy_switch.setText(R.string.proxy_off);
-        else if (event.equals("event.proxy.on")){
-                proxy_switch.setText(R.string.proxy_on);
-                Snackbar.make(proxy_switch, "Прокси успешно запущен.", Snackbar.LENGTH_SHORT).show();
-        }
-        else{
-                Log.d("idk", event);
-                proxy_switch.setText(R.string.proxy_off);
-                Snackbar.make(proxy_switch, String.format("Ошибка: %s", event), Snackbar.LENGTH_SHORT).show();
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProxyScreen(viewModel: ProxyViewModel) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        topBar = { CenterAlignedTopAppBar(title = { Text("TG Proxy Control") }) },
+        bottomBar = {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars), // Учитываем системную полоску навигации
+                color = Color.Transparent, // Прозрачный фон для бара
+                tonalElevation = 0.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    GlassToggleButton(
+                        onClick = { viewModel.onIntent(ProxyViewModel.ProxyIntent.ToggleProxy) },
+                        activeIcon = Icons.Rounded.Done,
+                        inactiveIcon = Icons.Rounded.PlayArrow
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        LazyColumn( // Используем список, если конфигов станет много
+            modifier = Modifier
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                ProxyInputFields(state, onValueChange = { viewModel.onIntent(it) })
+            }
+        }
+    }
+}
+
+@Composable
+fun ProxyInputFields(
+    state: ProxyViewModel.ProxyUiState,
+    onValueChange: (ProxyViewModel.ProxyIntent) -> Unit
+) {
+    Card(elevation = CardDefaults.cardElevation(4.dp)) {
+        Column(
+            Modifier
+                .padding(16.dp)
+                .fillMaxWidth()
+        ) {
+            OutlinedTextField(
+                value = state.host,
+                onValueChange = { onValueChange(ProxyViewModel.ProxyIntent.UpdateHost(it)) },
+                label = { Text("Server Host") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = state.port.toString(),
+                onValueChange = { onValueChange(ProxyViewModel.ProxyIntent.UpdatePort(it)) },
+                label = { Text("Server Port") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = state.dcip,
+                onValueChange = { onValueChange(ProxyViewModel.ProxyIntent.UpdateDcip(it)) },
+                label = { Text("DCIP") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = state.secret,
+                onValueChange = {  },
+                label = { Text("Secret") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+fun GlassToggleButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    activeText: String = "Stop Proxy",
+    inactiveText: String = "Start Proxy",
+    activeIcon: ImageVector,
+    inactiveIcon: ImageVector
+) {
+    val isProxyActive by ProxyManager.isRunning.collectAsStateWithLifecycle()
+
+    // 1. Анимация цветов и прозрачности в зависимости от состояния
+    val targetBackgroundColor = if (isProxyActive) {
+        Color.Red.copy(alpha = 0.15f) // Чуть красного фона при активации
+    } else {
+        Color.White.copy(alpha = 0.08f) // Чистое матовое стекло при покое
+    }
+
+    val backgroundColor by animateColorAsState(targetBackgroundColor, label = "color")
+
+    val targetBorderAlpha = if (isProxyActive) 0.5f else 0.2f
+    val borderAlpha by animateFloatAsState(targetBorderAlpha, label = "alpha")
+
+    // 2. Многослойный контейнер кнопки
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .clip(RoundedCornerShape(24.dp)) // Скругляем
+            .clickable { onClick() } // Обработка клика
+            .background(backgroundColor)
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = borderAlpha + 0.1f), // Сверху ярче
+                        Color.White.copy(alpha = borderAlpha)         // Снизу тусклее
+                    )
+                ),
+                shape = RoundedCornerShape(24.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        // 3. Контент внутри кнопки (иконка + текст)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        ) {
+            Icon(
+                imageVector = if (isProxyActive) activeIcon else inactiveIcon,
+                contentDescription = null,
+                tint = if (isProxyActive) Color.Red.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = if (isProxyActive) activeText else inactiveText,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+        }
+    }
+}
+
+//@Preview(showBackground = true)
+//@Composable
+//fun GreetingPreview() {
+//    TGProxyTheme {
+//        ProxyScreen(viewModel = ProxyViewModel)
+//    }
+//}
