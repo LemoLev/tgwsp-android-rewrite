@@ -1,4 +1,4 @@
-import backend
+import tg_ws_proxy
 import asyncio
 from typing import Optional
 
@@ -25,7 +25,7 @@ class ProxyControl(static_proxy()):
 
         self.stop_event = asyncio.Event()
         self.loop = asyncio.new_event_loop()
-        backend.main(cmd, self.stop_event, self.loop)
+        tg_ws_proxy.main(cmd, self.stop_event, self.loop)
 
     @method(jvoid, [])
     def stop_proxy(self):
