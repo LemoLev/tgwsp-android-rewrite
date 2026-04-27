@@ -31,7 +31,6 @@ class SecureKeyManager(val context: Context) {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
     fun initKeyStore() {
         val hasStrongBox: Boolean = context.packageManager.hasSystemFeature(
             PackageManager.FEATURE_STRONGBOX_KEYSTORE
@@ -75,8 +74,6 @@ class SecureKeyManager(val context: Context) {
             setKeySize(256)
             if (useStrongBox) {
                 setIsStrongBoxBacked(true)
-            } else {
-                setIsStrongBoxBacked(false)
             }
         }
 
@@ -84,28 +81,54 @@ class SecureKeyManager(val context: Context) {
         return keyGenerator.generateKey()
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
     fun checkKeySecurityLevel(secretKey: SecretKey): Boolean {
-        val factory = SecretKeyFactory.getInstance(
-            secretKey.algorithm, ANDROID_KEYSTORE
-        )
-
-        val keyInfo = factory.getKeySpec(secretKey, KeyInfo::class.java) as KeyInfo
-        val securityLevel = keyInfo.securityLevel
-        when (securityLevel) {
-            KeyProperties.SECURITY_LEVEL_STRONGBOX -> Log.i(SECURITY_KEY_TAG, "Security: StrongBox")
-            KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> Log.i(
-                SECURITY_KEY_TAG,
-                "Security: TEE"
+        return try {
+            val factory = SecretKeyFactory.getInstance(
+                secretKey.algorithm, ANDROID_KEYSTORE
             )
 
-            else -> Log.w(SECURITY_KEY_TAG, "Unsupported security")
+            val keyInfo = factory.getKeySpec(secretKey, KeyInfo::class.java) as KeyInfo
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                processSecurityLevel(keyInfo.securityLevel)
+            } else {
+                val isHardware = keyInfo.isInsideSecureHardware
+                if (isHardware) {
+                    Log.i(SECURITY_KEY_TAG, "Security: Hardware-backed (Legacy check)")
+                } else {
+                    Log.w(SECURITY_KEY_TAG, "Security: Software-backed")
+                }
+                isHardware
+            }
+        } catch (ex: Exception) {
+            Log.e(SECURITY_KEY_TAG, "Error checking key security level", ex)
+            false
         }
+    }
 
-        val isHardwareBacked = securityLevel == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT
-                || securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun processSecurityLevel(level: Int): Boolean {
+        return when (level) {
+            KeyProperties.SECURITY_LEVEL_STRONGBOX -> {
+                Log.i(SECURITY_KEY_TAG, "Security: StrongBox")
+                true
+            }
 
-        return isHardwareBacked
+            KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> {
+                Log.i(SECURITY_KEY_TAG, "Security: TEE")
+                true
+            }
+
+            KeyProperties.SECURITY_LEVEL_SOFTWARE -> {
+                Log.w(SECURITY_KEY_TAG, "Security: Software")
+                false
+            }
+
+            else -> {
+                Log.w(SECURITY_KEY_TAG, "Security: Unknown/Unsupported ($level)")
+                false
+            }
+        }
     }
 
     fun getSecretKey(): SecretKey {
@@ -116,7 +139,6 @@ class SecureKeyManager(val context: Context) {
 
 class HardwareSecurityException(message: String?) : Exception(message)
 
-@RequiresApi(Build.VERSION_CODES.S)
 class DataStore(val context: Context) {
 
     companion object {
@@ -170,13 +192,12 @@ class DataStore(val context: Context) {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     inline fun <reified T> getObject(): T? {
         return try {
             val result = runCatching {
                 val outputByteArray: ByteArray
                 context.openFileInput(PROXY_CONFIG_FILE_NAME).use { fis ->
-                    outputByteArray = fis.readAllBytes()
+                    outputByteArray = fis.readBytes()
                 }
                 outputByteArray
             }

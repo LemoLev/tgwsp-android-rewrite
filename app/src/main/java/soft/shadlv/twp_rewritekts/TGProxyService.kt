@@ -21,6 +21,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import main.ProxyControl
+import soft.shadlv.twp_rewritekts.store.DataStore
+import soft.shadlv.twp_rewritekts.store.ProxyConfig
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit.SECONDS
@@ -62,12 +64,14 @@ class TGProxyService : LifecycleService() {
             startForeground(1, notification)
         }
 
-        startProxyEngine(intent)
+        val dataStore = DataStore(applicationContext)
+        val proxyConfig = dataStore.getObject<ProxyConfig>()
+        startProxyEngine(proxyConfig!!)
 
         return START_REDELIVER_INTENT
     }
 
-    private fun startProxyEngine(intent: Intent?) =
+    private fun startProxyEngine(input: ProxyConfig) =
         lifecycleScope.launch(PythonBackgroundEngine.getDispatcher()) {
             try {
                 Log.d("TGProxyService", "proxy starting")
@@ -77,10 +81,10 @@ class TGProxyService : LifecycleService() {
                 }
 
                 if (!ProxyManager.isRunning.value) {
-                    val host = intent!!.getStringExtra("host")
-                    val port = intent.getIntExtra("port", 1080)
-                    val dcip = intent.getStringExtra("dcip")?.replace(";", "\n")
-                    val secret = intent.getStringExtra("secret")
+                    val host = input.host
+                    val port = input.port
+                    val dcip = input.dcip.replace(";", "\n")
+                    val secret = input.secret
 
                     ProxyManager.setRunning(true)
 

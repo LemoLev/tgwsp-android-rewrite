@@ -2,8 +2,6 @@ package soft.shadlv.twp_rewritekts
 
 import android.app.Application
 import android.content.Intent
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,7 +14,6 @@ import soft.shadlv.twp_rewritekts.store.DataStore
 import soft.shadlv.twp_rewritekts.store.ProxyConfig
 import java.security.SecureRandom
 
-@RequiresApi(Build.VERSION_CODES.S)
 class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(ProxyUiState())
@@ -28,7 +25,6 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         loadConfig()
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
     private fun loadConfig() {
         viewModelScope.launch(Dispatchers.IO) {
             val config = DataStore(context).getObject<ProxyConfig>()
@@ -58,14 +54,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun handleToggle() {
-        val state = _uiState.value
-        val intent = Intent(context, TGProxyService::class.java).apply {
-            putExtra("host", state.host)
-            putExtra("port", state.port)
-            putExtra("dcip", state.dcip)
-            putExtra("secret", state.secret)
-        }
-
+        val intent = Intent(context, TGProxyService::class.java)
         if (ProxyManager.isRunning.value) {
             context.stopService(intent)
         } else {

@@ -1,21 +1,19 @@
 
 from __future__ import annotations
 
-import os
-import sys
-import time
-import struct
+import argparse
 import asyncio
 import hashlib
-import argparse
 import logging
 import logging.handlers
+import os
 import socket as _socket
-
+import struct
+import sys
+import time
 from collections import deque
-from typing import Dict, List, Optional, Set, Tuple
-
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from typing import Dict, List, Optional, Set, Tuple
 
 if __name__ == '__main__' and (__package__ is None or __package__ == ''):
     _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -640,6 +638,7 @@ async def _run(stop_event: Optional[asyncio.Event] = None):
                 await server.serve_forever()
     finally:
         log_stats_task.cancel()
+        print("Stop Server - interrupt")
         try:
             await log_stats_task
         except asyncio.CancelledError:

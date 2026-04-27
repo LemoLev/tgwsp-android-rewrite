@@ -112,6 +112,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.material.icons)
     implementation(libs.kotlin.serialization)
+    implementation(libs.androidx.datastore)
 
     runtimeOnly(libs.androidx.security.crypto)
 
