@@ -1,9 +1,10 @@
-import tg_ws_proxy
 import asyncio
+from java.lang import String
 from typing import Optional
 
+import tg_ws_proxy
 from java import static_proxy, jarray, jint, method, jvoid, jboolean
-from java.lang import String
+
 
 class ProxyControl(static_proxy()):
     def __init__(self):
@@ -23,9 +24,31 @@ class ProxyControl(static_proxy()):
         cmd.append(proxies)
         print(cmd)
 
-        self.stop_event = asyncio.Event()
         self.loop = asyncio.new_event_loop()
-        tg_ws_proxy.main(cmd, self.stop_event, self.loop)
+        asyncio.set_event_loop(self.loop)
+        self.stop_event = asyncio.Event()
+
+        try:
+            tg_ws_proxy.main(cmd, self.stop_event, self.loop)
+        except Exception as e:
+            print(f"Proxy error: {e}")
+        finally:
+            try:
+                pending = asyncio.all_tasks(self.loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self.loop.run_until_complete(asyncio.wait(pending, timeout=1))
+
+                self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+                self.loop.run_until_complete(asyncio.sleep(1))
+            except Exception as e:
+                print(f"Force close loop due to: {e}")
+            finally:
+                self.loop.close()
+                print("Close loops")
+                self.loop = None
+                self.stop_event = None
 
     @method(jvoid, [])
     def stop_proxy(self):

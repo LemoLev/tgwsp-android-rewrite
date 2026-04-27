@@ -68,7 +68,7 @@ class TGProxyService : LifecycleService() {
         val proxyConfig = dataStore.getObject<ProxyConfig>()
         startProxyEngine(proxyConfig!!)
 
-        return START_REDELIVER_INTENT
+        return START_STICKY
     }
 
     private fun startProxyEngine(input: ProxyConfig) =
@@ -191,7 +191,7 @@ internal object PythonBackgroundEngine {
         val exec = executor ?: return
         exec.shutdown()
         try {
-            if (!exec.awaitTermination(2, SECONDS)) {
+            if (!exec.awaitTermination(3, SECONDS)) {
                 Log.w("Engine", "Executor didn't stop in time, forcing shutdownNow")
                 exec.shutdownNow()
 
