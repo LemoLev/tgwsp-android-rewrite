@@ -1,16 +1,14 @@
 import asyncio
 import logging
 import struct
-
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from typing import Dict, List, Optional
 
-from utils import *
-from stats import stats
 from balancer import balancer
 from config import proxy_config
 from raw_websocket import RawWebSocket
-
+from stats import stats
+from utils import *
 
 log = logging.getLogger('tg-mtproto-proxy')
 _st_I_le = struct.Struct('<I')
@@ -184,28 +182,39 @@ async def _cfproxy_fallback(reader, writer, relay_init, label,
     if chosen_domain and balancer.update_domain_for_dc(dc, chosen_domain):
         log.info("[%s] Switched active CF domain", label)
 
-    stats.connections_cfproxy += 1
-    await ws.send(relay_init)
-    await bridge_ws_reencrypt(reader, writer, ws, label, ctx,
-                              dc=dc, is_media=is_media,
-                              splitter=splitter)
-    return True
-
+    try:
+        stats.connections_cfproxy += 1
+        await ws.send(relay_init)
+        await bridge_ws_reencrypt(reader, writer, ws, label, ctx, dc=dc, is_media=is_media, splitter=splitter)
+        return True
+    except Exception as exc:
+        log.warning("[%s] CF fallback failed: %s", label, repr(exc))
+        if ws:
+            await ws.close()
+        return False
 
 async def _tcp_fallback(reader, writer, dst, port, relay_init, label, ctx: CryptoCtx):
+    rw = None
     try:
         rr, rw = await asyncio.wait_for(
             asyncio.open_connection(dst, port), timeout=10)
+
+        stats.connections_tcp_fallback += 1
+        rw.write(relay_init)
+        await rw.drain()
+
+        await _bridge_tcp_reencrypt(reader, writer, rr, rw, label, ctx)
+        return True
     except Exception as exc:
         log.warning("[%s] TCP fallback to %s:%d failed: %s",
                     label, dst, port, repr(exc))
+        if rw:
+            rw.close()
+            try:
+                await rw.wait_closed()
+            except:
+                pass
         return False
-
-    stats.connections_tcp_fallback += 1
-    rw.write(relay_init)
-    await rw.drain()
-    await _bridge_tcp_reencrypt(reader, writer, rr, rw, label, ctx)
-    return True
 
 
 async def bridge_ws_reencrypt(reader, writer, ws: RawWebSocket, label,
@@ -283,12 +292,11 @@ async def bridge_ws_reencrypt(reader, writer, ws: RawWebSocket, label,
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
         for t in tasks:
-            t.cancel()
-        for t in tasks:
-            try:
-                await t
-            except BaseException:
-                pass
+            if not t.done():
+                t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
         elapsed = asyncio.get_running_loop().time() - start_time
         log.info("[%s] %s WS session closed: "
                  "^%s (%d pkts) v%s (%d pkts) in %.1fs",
@@ -298,6 +306,10 @@ async def bridge_ws_reencrypt(reader, writer, ws: RawWebSocket, label,
                  elapsed)
         try:
             await ws.close()
+            try:
+                await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
+            except:
+                pass
         except BaseException:
             pass
         try:

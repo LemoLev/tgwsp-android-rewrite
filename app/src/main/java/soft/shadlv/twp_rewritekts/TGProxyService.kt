@@ -6,12 +6,45 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.Intent.ACTION_SCREEN_ON
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.lifecycleScope
+import com.chaquo.python.PyException
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
+import main.ProxyControl
+import soft.shadlv.twp_rewritekts.store.DataStore
+import soft.shadlv.twp_rewritekts.store.ProxyConfig
+import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit.SECONDS
+
+gc collectimport android.content.Intent.ACTION_SCREEN_OFF
+import android.content.Intent.ACTION_SCREEN_ON
+import android.content.IntentFilter
+import android.content.pm.ServiceInfo
+import android.hardware.display.DisplayManager
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED
+import android.util.Log
+import android.view.Display
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -54,17 +87,22 @@ class TGProxyService : LifecycleService() {
         if (!statusFile.exists()) {
             statusFile.createNewFile()
             statusFile.writeText(false.toString())
-            Log.d("Proxy", "Файл создан с нуля")
+            Log.d("Proxy", "The file was created from scratch")
         } else {
-            Log.d("Proxy", "Файл уже существует, текущее содержимое: ${statusFile.readText()}")
+            Log.d("Proxy", "File already exists, current content: ${statusFile.readText()}")
         }
 
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
         }
 
-        val filter = IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
+        val filter = IntentFilter().apply {
+            addAction(ACTION_DEVICE_IDLE_MODE_CHANGED)
+            addAction(ACTION_SCREEN_ON)
+            addAction(ACTION_SCREEN_OFF)
+        }
         registerReceiver(dozeModeReceiver, filter)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(
                 commandReceiver,
@@ -72,7 +110,10 @@ class TGProxyService : LifecycleService() {
                 RECEIVER_NOT_EXPORTED
             )
         } else {
-            registerReceiver(commandReceiver, filter)
+            registerReceiver(
+                commandReceiver,
+                IntentFilter("${applicationContext.packageName}.PROXY_COMMAND")
+            )
         }
     }
 
@@ -134,6 +175,7 @@ class TGProxyService : LifecycleService() {
 
                 updateProxyStatus(true)
                 proxyControl.start_proxy(host, port, dcip, secret)
+                Log.d("TGProxyService", "Proxy control stopped")
             } catch (e: Exception) {
                 if (e is PyException) {
                     val errorMessage = e.message ?: "Unknown Python error"
@@ -214,6 +256,7 @@ class TGProxyService : LifecycleService() {
         }
     }
 
+    @Synchronized
     private fun startProxy() {
         if (isRun) {
             return
@@ -227,6 +270,7 @@ class TGProxyService : LifecycleService() {
         }
     }
 
+    @Synchronized
     private fun stopProxy() {
         if (!isRun) {
             return
@@ -288,14 +332,17 @@ private val dozeModeReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
-        if (powerManager.isDeviceIdleMode) {
+        val isIdle = powerManager.isDeviceIdleMode
+        val isScreenOn = powerManager.isInteractive
+
+        if (isIdle) {
             Log.d("ProxyWatchdog", "The system went into a Doze Mode. Slow down the proxy.")
             val intent = Intent("${context.packageName}.PROXY_COMMAND").apply {
                 putExtra("action", "STOP")
                 setPackage(context.packageName)
             }
             context.sendBroadcast(intent)
-        } else {
+        } else if (isScreenOn) {
             Log.d("ProxyWatchdog", "The system woke up. Running a proxy.")
             val intent = Intent("${context.packageName}.PROXY_COMMAND").apply {
                 putExtra("action", "START")
