@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.Intent.ACTION_SCREEN_OFF
 import android.content.Intent.ACTION_SCREEN_ON
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
@@ -14,37 +15,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.lifecycle.LifecycleService
-import androidx.lifecycle.lifecycleScope
-import com.chaquo.python.PyException
-import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPlatform
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
-import main.ProxyControl
-import soft.shadlv.twp_rewritekts.store.DataStore
-import soft.shadlv.twp_rewritekts.store.ProxyConfig
-import java.io.File
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit.SECONDS
-
-gc collectimport android.content.Intent.ACTION_SCREEN_OFF
-import android.content.Intent.ACTION_SCREEN_ON
-import android.content.IntentFilter
-import android.content.pm.ServiceInfo
-import android.hardware.display.DisplayManager
-import android.os.Build
-import android.os.IBinder
-import android.os.PowerManager
-import android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED
-import android.util.Log
-import android.view.Display
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
