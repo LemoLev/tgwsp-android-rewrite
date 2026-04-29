@@ -29,6 +29,7 @@ class ProxyControl(static_proxy()):
         self.stop_event = asyncio.Event()
 
         try:
+            print("Start ProxyControl")
             tg_ws_proxy.main(cmd, self.stop_event, self.loop)
         except Exception as e:
             print(f"Proxy error: {e}")

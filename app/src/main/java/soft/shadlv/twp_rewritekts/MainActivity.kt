@@ -3,6 +3,7 @@ package soft.shadlv.twp_rewritekts
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -68,7 +69,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        Log.d(
+            "TGProxyService.MainActivity",
+            "Proxy starting: Proxy Process PID: ${android.os.Process.myPid()}"
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
         }
@@ -107,6 +111,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                     contentAlignment = Alignment.Center
                 ) {
                     GlassToggleButton(
+                        viewModel,
                         onClick = { viewModel.onIntent(ProxyViewModel.ProxyIntent.ToggleProxy) },
                         activeIcon = Icons.Rounded.Done,
                         inactiveIcon = Icons.Rounded.PlayArrow
@@ -179,6 +184,7 @@ fun ProxyInputFields(
 
 @Composable
 fun GlassToggleButton(
+    viewModel: ProxyViewModel,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     activeText: String = "Stop Proxy",
@@ -186,7 +192,7 @@ fun GlassToggleButton(
     activeIcon: ImageVector,
     inactiveIcon: ImageVector
 ) {
-    val isProxyActive by ProxyManager.isRunning.collectAsStateWithLifecycle()
+    val isProxyActive by viewModel.proxyManager.isRunning.collectAsStateWithLifecycle()
 
     val targetBackgroundColor = if (isProxyActive) {
         Color.Red.copy(alpha = 0.15f)

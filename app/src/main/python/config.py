@@ -1,10 +1,9 @@
 import logging
 import os
-import string
 import random
 import socket as _socket
+import string
 import threading
-
 from dataclasses import dataclass, field
 from typing import Dict, List
 from urllib.request import Request, urlopen
@@ -104,7 +103,6 @@ def start_cfproxy_domain_refresh() -> None:
 
 def parse_dc_ip_list(dc_ip_list: List[str]) -> Dict[int, str]:
     dc_redirects: Dict[int, str] = {}
-    print(dc_ip_list)
     for entry in dc_ip_list:
         if ':' not in entry:
             raise ValueError(

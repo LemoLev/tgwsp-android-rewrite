@@ -3,10 +3,14 @@ package soft.shadlv.twp_rewritekts
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
@@ -23,6 +27,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import main.ProxyControl
 import soft.shadlv.twp_rewritekts.store.DataStore
 import soft.shadlv.twp_rewritekts.store.ProxyConfig
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit.SECONDS
@@ -34,8 +39,41 @@ class TGProxyService : LifecycleService() {
 
     private val proxyControl by lazy { ProxyControl() }
 
+    @Volatile
+    private var isRun = false
+
     override fun onCreate() {
         super.onCreate()
+
+        val proxyDir = File(applicationContext.filesDir, "proxy_engine")
+        if (!proxyDir.exists()) {
+            proxyDir.mkdirs()
+        }
+
+        val statusFile = File(proxyDir, "proxy_status.txt")
+        if (!statusFile.exists()) {
+            statusFile.createNewFile()
+            statusFile.writeText(false.toString())
+            Log.d("Proxy", "Файл создан с нуля")
+        } else {
+            Log.d("Proxy", "Файл уже существует, текущее содержимое: ${statusFile.readText()}")
+        }
+
+        if (!Python.isStarted()) {
+            Python.start(AndroidPlatform(this))
+        }
+
+        val filter = IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
+        registerReceiver(dozeModeReceiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                commandReceiver,
+                IntentFilter("${applicationContext.packageName}.PROXY_COMMAND"),
+                RECEIVER_NOT_EXPORTED
+            )
+        } else {
+            registerReceiver(commandReceiver, filter)
+        }
     }
 
     override fun onBind(intent: Intent): IBinder? {
@@ -64,9 +102,7 @@ class TGProxyService : LifecycleService() {
             startForeground(1, notification)
         }
 
-        val dataStore = DataStore(applicationContext)
-        val proxyConfig = dataStore.getObject<ProxyConfig>()
-        startProxyEngine(proxyConfig!!)
+        startProxy()
 
         return START_STICKY
     }
@@ -74,34 +110,30 @@ class TGProxyService : LifecycleService() {
     private fun startProxyEngine(input: ProxyConfig) =
         lifecycleScope.launch(PythonBackgroundEngine.getDispatcher()) {
             try {
-                Log.d("TGProxyService", "proxy starting")
+                Log.d(
+                    "TGProxyService",
+                    "Proxy starting: Proxy Process PID: ${android.os.Process.myPid()}"
+                )
 
-                if (!Python.isStarted()) {
-                    Python.start(AndroidPlatform(this@TGProxyService))
-                }
+                val host = input.host
+                val port = input.port
+                val dcip = input.dcip.replace(";", "\n")
+                val secret = input.secret
 
-                if (!ProxyManager.isRunning.value) {
-                    val host = input.host
-                    val port = input.port
-                    val dcip = input.dcip.replace(";", "\n")
-                    val secret = input.secret
+                val upd: Notification =
+                    NotificationCompat.Builder(this@TGProxyService, CHANNEL_ID)
+                        .setContentTitle("TG Proxy")
+                        .setContentText("Прокси запущен")
+                        .setSmallIcon(R.drawable.ic_launcher_foreground)
+                        .setOngoing(true)
+                        .build()
 
-                    ProxyManager.setRunning(true)
+                val notificationManager: NotificationManager =
+                    getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(1, upd)
 
-                    val upd: Notification =
-                        NotificationCompat.Builder(this@TGProxyService, CHANNEL_ID)
-                            .setContentTitle("TG Proxy")
-                            .setContentText("Прокси запущен")
-                            .setSmallIcon(R.drawable.ic_launcher_foreground)
-                            .setOngoing(true)
-                            .build()
-
-                    val notificationManager: NotificationManager =
-                        getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                    notificationManager.notify(1, upd)
-
-                    proxyControl.start_proxy(host, port, dcip, secret)
-                }
+                updateProxyStatus(true)
+                proxyControl.start_proxy(host, port, dcip, secret)
             } catch (e: Exception) {
                 if (e is PyException) {
                     val errorMessage = e.message ?: "Unknown Python error"
@@ -109,8 +141,6 @@ class TGProxyService : LifecycleService() {
                 } else {
                     Log.e("TGProxyService", "Generic error: ${e.message}")
                 }
-
-                ProxyManager.setRunning(false)
 
                 val upd: Notification = NotificationCompat.Builder(this@TGProxyService, CHANNEL_ID)
                     .setContentTitle("TG Proxy")
@@ -121,6 +151,8 @@ class TGProxyService : LifecycleService() {
                 val notificationManager: NotificationManager =
                     getSystemService(NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.notify(1, upd)
+
+                updateProxyStatus(false)
             }
         }
 
@@ -143,16 +175,10 @@ class TGProxyService : LifecycleService() {
     override fun onDestroy() {
         Log.d("proxy", "proxy stopping")
 
-        runBlocking {
-            withTimeoutOrNull(1500) {
-                launch(Dispatchers.IO) {
-                    proxyControl.stop_proxy()
-                }
-            }
-        }
+        stopProxy()
 
         PythonBackgroundEngine.shutdown()
-        ProxyManager.setRunning(false)
+        updateProxyStatus(false)
 
         val upd: Notification = NotificationCompat.Builder(this@TGProxyService, CHANNEL_ID)
             .setContentTitle("TG Proxy")
@@ -164,7 +190,55 @@ class TGProxyService : LifecycleService() {
             getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(1, upd)
 
+        unregisterReceiver(dozeModeReceiver)
+        unregisterReceiver(commandReceiver)
         super.onDestroy()
+    }
+
+    private fun updateProxyStatus(status: Boolean) {
+        val proxyDir = File(applicationContext.filesDir, "proxy_engine")
+        val statusFile = File(proxyDir, "proxy_status.txt")
+        val tempFile = File(proxyDir, "status.tmp")
+        tempFile.writeText(status.toString())
+        tempFile.renameTo(statusFile)
+        isRun = status
+    }
+
+    private val commandReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val action = intent.getStringExtra("action")
+            when (action) {
+                "START" -> startProxy()
+                "STOP" -> stopProxy()
+            }
+        }
+    }
+
+    private fun startProxy() {
+        if (isRun) {
+            return
+        }
+        val dataStore = DataStore(applicationContext)
+        val proxyConfig = dataStore.getObject<ProxyConfig>()
+        if (proxyConfig != null) {
+            startProxyEngine(proxyConfig)
+        } else {
+            stopSelf()
+        }
+    }
+
+    private fun stopProxy() {
+        if (!isRun) {
+            return
+        }
+        runBlocking {
+            withTimeoutOrNull(1500) {
+                launch(Dispatchers.IO) {
+                    proxyControl.stop_proxy()
+                    updateProxyStatus(false)
+                }
+            }
+        }
     }
 }
 
@@ -206,6 +280,28 @@ internal object PythonBackgroundEngine {
             executor = null
             dispatcher = null
             Log.d("Engine", "Cleaned up all resources")
+        }
+    }
+}
+
+private val dozeModeReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+
+        if (powerManager.isDeviceIdleMode) {
+            Log.d("ProxyWatchdog", "The system went into a Doze Mode. Slow down the proxy.")
+            val intent = Intent("${context.packageName}.PROXY_COMMAND").apply {
+                putExtra("action", "STOP")
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(intent)
+        } else {
+            Log.d("ProxyWatchdog", "The system woke up. Running a proxy.")
+            val intent = Intent("${context.packageName}.PROXY_COMMAND").apply {
+                putExtra("action", "START")
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(intent)
         }
     }
 }

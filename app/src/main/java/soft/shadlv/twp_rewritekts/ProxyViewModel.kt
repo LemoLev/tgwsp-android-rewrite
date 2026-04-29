@@ -1,10 +1,13 @@
 package soft.shadlv.twp_rewritekts
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,14 +15,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import soft.shadlv.twp_rewritekts.store.DataStore
 import soft.shadlv.twp_rewritekts.store.ProxyConfig
+import java.io.File
 import java.security.SecureRandom
 
 class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val context = getApplication<Application>()
+    val proxyManager by lazy { ProxyManager(context, viewModelScope) }
+
     private val _uiState = MutableStateFlow(ProxyUiState())
     val uiState = _uiState.asStateFlow()
-
-    private val context = getApplication<Application>()
 
     init {
         loadConfig()
@@ -55,7 +60,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun handleToggle() {
         val intent = Intent(context, TGProxyService::class.java)
-        if (ProxyManager.isRunning.value) {
+        if (proxyManager.isRunning.value) {
             context.stopService(intent)
         } else {
             saveToDisk()
@@ -89,6 +94,22 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         object RegenerateSecret : ProxyIntent()
         object ToggleProxy : ProxyIntent()
         object SaveConfig : ProxyIntent()
+    }
+
+    class ProxyManager(private val context: Context, private val viewModelScope: CoroutineScope) {
+        private val _isRunning = MutableStateFlow(false)
+        val isRunning = _isRunning.asStateFlow()
+        val statusFile = File(context.filesDir, "proxy_engine")
+        val fileFlow = FileStateFlow(statusFile).observe("proxy_status.txt")
+
+        init {
+            viewModelScope.launch {
+                fileFlow.collect { status ->
+                    Log.d("UI", "Status proxy: $status")
+                    _isRunning.update { status.toBoolean() }
+                }
+            }
+        }
     }
 }
 

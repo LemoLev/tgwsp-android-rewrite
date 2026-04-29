@@ -1,13 +1,12 @@
-import os
-import ssl
-import base64
-import struct
 import asyncio
+import base64
+import os
 import socket as _socket
-
+import ssl
+import struct
 from typing import List, Optional, Tuple
-from config import proxy_config
 
+from config import proxy_config
 
 _st_BB = struct.Struct('>BB')
 _st_BBH = struct.Struct('>BBH')
@@ -96,9 +95,6 @@ class RawWebSocket:
             f'Sec-WebSocket-Key: {ws_key}\r\n'
             f'Sec-WebSocket-Version: 13\r\n'
             f'Sec-WebSocket-Protocol: binary\r\n'
-            f'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            f'AppleWebKit/537.36 (KHTML, like Gecko) '
-            f'Chrome/131.0.0.0 Safari/537.36\r\n'
             f'\r\n'
         )
         writer.write(req.encode())
