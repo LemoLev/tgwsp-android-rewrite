@@ -113,6 +113,7 @@ dependencies {
     implementation(libs.material.icons)
     implementation(libs.kotlin.serialization)
     implementation(libs.androidx.datastore)
+    implementation(libs.androidx.preferences)
 
     runtimeOnly(libs.androidx.security.crypto)
 

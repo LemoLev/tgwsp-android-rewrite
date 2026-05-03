@@ -20,6 +20,7 @@ datastore = "1.2.1"
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-datastore = { group = "androidx.datastore", name = "datastore", version.ref = "datastore"}
+androidx-preferences = { group = "androidx.datastore", name = "datastore-preferences-core", version.ref = "datastore"}
 
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }

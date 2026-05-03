@@ -192,7 +192,7 @@ fun GlassToggleButton(
     activeIcon: ImageVector,
     inactiveIcon: ImageVector
 ) {
-    val isProxyActive by viewModel.proxyManager.isRunning.collectAsStateWithLifecycle()
+    val isProxyActive by viewModel.isRunning.collectAsStateWithLifecycle()
 
     val targetBackgroundColor = if (isProxyActive) {
         Color.Red.copy(alpha = 0.15f)

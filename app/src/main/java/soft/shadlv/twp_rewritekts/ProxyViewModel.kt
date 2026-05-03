@@ -1,27 +1,34 @@
 package soft.shadlv.twp_rewritekts
 
 import android.app.Application
-import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import soft.shadlv.twp_rewritekts.store.DataStore
+import kotlinx.coroutines.withContext
+import soft.shadlv.twp_rewritekts.store.DataStoreSecurity
 import soft.shadlv.twp_rewritekts.store.ProxyConfig
-import java.io.File
 import java.security.SecureRandom
 
 class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = getApplication<Application>()
-    val proxyManager by lazy { ProxyManager(context, viewModelScope) }
+    private val dataStoreSecurity = DataStoreSecurity(context)
+    val isRunning = ServiceDataStoreProvider.getInstance(context)
+        .data
+        .stateIn(
+            viewModelScope,
+            started = SharingStarted.WhileSubscribed(1000),
+            initialValue = false
+        )
 
     private val _uiState = MutableStateFlow(ProxyUiState())
     val uiState = _uiState.asStateFlow()
@@ -32,7 +39,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadConfig() {
         viewModelScope.launch(Dispatchers.IO) {
-            val config = DataStore(context).getObject<ProxyConfig>()
+            val config = DataStoreSecurity(context).getObject<ProxyConfig>()
 
             if (config != null) {
                 _uiState.update {
@@ -54,21 +61,27 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             is ProxyIntent.UpdateDcip -> _uiState.update { it.copy(dcip = intent.dcip) }
             is ProxyIntent.RegenerateSecret -> _uiState.update { it.copy(secret = generateHexToken()) }
             is ProxyIntent.ToggleProxy -> handleToggle()
-            is ProxyIntent.SaveConfig -> saveToDisk()
+            is ProxyIntent.SaveConfig -> viewModelScope.launch { saveToDisk() }
         }
     }
 
     private fun handleToggle() {
         val intent = Intent(context, TGProxyService::class.java)
-        if (proxyManager.isRunning.value) {
+        if (isRunning.value) {
             context.stopService(intent)
         } else {
-            saveToDisk()
-            ContextCompat.startForegroundService(context, intent)
+            viewModelScope.launch {
+                saveToDisk()
+                try {
+                    ContextCompat.startForegroundService(context, intent)
+                } catch (ex: Exception) {
+                    Log.e("Error start ForegroundService", "Error starting", ex)
+                }
+            }
         }
     }
 
-    private fun saveToDisk() {
+    private suspend fun saveToDisk() = withContext(Dispatchers.IO) {
         val state = _uiState.value
         val proxyConfig = ProxyConfig(
             host = state.host,
@@ -76,8 +89,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             dcip = state.dcip,
             secret = state.secret
         )
-        val dataStore = DataStore(context)
-        dataStore.saveObject(proxyConfig)
+        dataStoreSecurity.saveObject(proxyConfig)
     }
 
     data class ProxyUiState(
@@ -91,25 +103,9 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         data class UpdateHost(val host: String) : ProxyIntent()
         data class UpdatePort(val port: String) : ProxyIntent()
         data class UpdateDcip(val dcip: String) : ProxyIntent()
-        object RegenerateSecret : ProxyIntent()
-        object ToggleProxy : ProxyIntent()
-        object SaveConfig : ProxyIntent()
-    }
-
-    class ProxyManager(private val context: Context, private val viewModelScope: CoroutineScope) {
-        private val _isRunning = MutableStateFlow(false)
-        val isRunning = _isRunning.asStateFlow()
-        val statusFile = File(context.filesDir, "proxy_engine")
-        val fileFlow = FileStateFlow(statusFile).observe("proxy_status.txt")
-
-        init {
-            viewModelScope.launch {
-                fileFlow.collect { status ->
-                    Log.d("UI", "Status proxy: $status")
-                    _isRunning.update { status.toBoolean() }
-                }
-            }
-        }
+        data object RegenerateSecret : ProxyIntent()
+        data object ToggleProxy : ProxyIntent()
+        data object SaveConfig : ProxyIntent()
     }
 }
 
@@ -117,11 +113,5 @@ internal fun generateHexToken(): String {
     val random = SecureRandom()
     val bytes = ByteArray(16)
     random.nextBytes(bytes)
-
-    val sb = StringBuilder()
-    for (b in bytes) {
-        // Форматируем каждый байт в 2 символа hex
-        sb.append(String.format("%02x", b))
-    }
-    return sb.toString()
+    return bytes.joinToString("") { "%02x".format(it) }
 }
