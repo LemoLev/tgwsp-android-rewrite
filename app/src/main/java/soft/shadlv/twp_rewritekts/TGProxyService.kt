@@ -176,7 +176,7 @@ class TGProxyService : LifecycleService() {
                     startProxyEngine(proxyConfig)
                 } else {
                     Log.e("TGProxyService", "Config is null, stopping self")
-                    Toast.makeText(applicationContext, "Проверьте параметры прокси в настройках", Toast.LENGTH_SHORT)
+                    Toast.makeText(applicationContext, "Сохраните параметры в настройках", Toast.LENGTH_SHORT)
                         .show()
                     stopSelf()
                 }
