@@ -1,35 +1,21 @@
-package soft.shadlv.twp_rewritekts
+package soft.shadlv.twp_rewritekts.domain
 
 import android.app.Application
-import android.content.Intent
-import android.util.Log
-import androidx.core.content.ContextCompat
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import soft.shadlv.twp_rewritekts.store.DataStoreSecurity
+import soft.shadlv.twp_rewritekts.repository.ProxyConfigRepository
 import soft.shadlv.twp_rewritekts.store.ProxyConfig
 import java.security.SecureRandom
 
 class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = getApplication<Application>()
-    private val dataStoreSecurity = DataStoreSecurity(context)
-    val isRunning = ServiceDataStoreProvider.getInstance(context)
-        .data
-        .stateIn(
-            viewModelScope,
-            started = SharingStarted.WhileSubscribed(1000),
-            initialValue = false
-        )
-
+    private val repository = ProxyConfigRepository(application)
     private val _uiState = MutableStateFlow(ProxyUiState())
     val uiState = _uiState.asStateFlow()
 
@@ -38,8 +24,8 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadConfig() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val config = DataStoreSecurity(context).getObject<ProxyConfig>()
+        viewModelScope.launch {
+            val config = repository.getConfig()
 
             if (config != null) {
                 _uiState.update {
@@ -57,39 +43,32 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     fun onIntent(intent: ProxyIntent) {
         when (intent) {
             is ProxyIntent.UpdateHost -> _uiState.update { it.copy(host = intent.host) }
-            is ProxyIntent.UpdatePort -> _uiState.update { it.copy(port = intent.port.toInt()) }
+            is ProxyIntent.UpdatePort -> _uiState.update {
+                it.copy(
+                    port = intent.port.toIntOrNull() ?: it.port
+                )
+            }
+
             is ProxyIntent.UpdateDcip -> _uiState.update { it.copy(dcip = intent.dcip) }
             is ProxyIntent.RegenerateSecret -> _uiState.update { it.copy(secret = generateHexToken()) }
-            is ProxyIntent.ToggleProxy -> handleToggle()
             is ProxyIntent.SaveConfig -> viewModelScope.launch { saveToDisk() }
         }
     }
 
-    private fun handleToggle() {
-        val intent = Intent(context, TGProxyService::class.java)
-        if (isRunning.value) {
-            context.stopService(intent)
-        } else {
-            viewModelScope.launch {
-                saveToDisk()
-                try {
-                    ContextCompat.startForegroundService(context, intent)
-                } catch (ex: Exception) {
-                    Log.e("Error start ForegroundService", "Error starting", ex)
-                }
-            }
+    private suspend fun saveToDisk() {
+        try {
+            val state = _uiState.value
+            val proxyConfig = ProxyConfig(
+                host = state.host,
+                port = state.port,
+                dcip = state.dcip,
+                secret = state.secret
+            )
+            repository.saveConfig(proxyConfig)
+            Toast.makeText(context, "Успешно сохранено", Toast.LENGTH_SHORT).show()
+        } catch (ex: Exception) {
+            Toast.makeText(context, "Ошибка сохранения", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private suspend fun saveToDisk() = withContext(Dispatchers.IO) {
-        val state = _uiState.value
-        val proxyConfig = ProxyConfig(
-            host = state.host,
-            port = state.port,
-            dcip = state.dcip,
-            secret = state.secret
-        )
-        dataStoreSecurity.saveObject(proxyConfig)
     }
 
     data class ProxyUiState(
@@ -104,7 +83,6 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         data class UpdatePort(val port: String) : ProxyIntent()
         data class UpdateDcip(val dcip: String) : ProxyIntent()
         data object RegenerateSecret : ProxyIntent()
-        data object ToggleProxy : ProxyIntent()
         data object SaveConfig : ProxyIntent()
     }
 }

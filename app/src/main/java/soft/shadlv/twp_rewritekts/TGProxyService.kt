@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
@@ -35,7 +36,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import main.ProxyControl
-import soft.shadlv.twp_rewritekts.store.DataStoreSecurity
+import soft.shadlv.twp_rewritekts.repository.ProxyConfigRepository
 import soft.shadlv.twp_rewritekts.store.ProxyConfig
 import java.io.File
 import java.io.InputStream
@@ -89,6 +90,7 @@ class TGProxyService : LifecycleService() {
         private const val NOTIFICATION_ID = 1
     }
 
+    private val repository by lazy { ProxyConfigRepository(application) }
     private val proxyControl by lazy { ProxyControl() }
     private val notificationManager by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
 
@@ -167,13 +169,20 @@ class TGProxyService : LifecycleService() {
         if (isRun) return
 
         lifecycleScope.launch {
-            val dataStoreSecurity = DataStoreSecurity(applicationContext)
-            val proxyConfig = dataStoreSecurity.getObject<ProxyConfig>()
+            try {
+                val proxyConfig = repository.getConfig()
 
-            if (proxyConfig != null) {
-                startProxyEngine(proxyConfig)
-            } else {
-                Log.e("TGProxyService", "Config is null, stopping self")
+                if (proxyConfig != null) {
+                    startProxyEngine(proxyConfig)
+                } else {
+                    Log.e("TGProxyService", "Config is null, stopping self")
+                    Toast.makeText(applicationContext, "Проверьте параметры прокси в настройках", Toast.LENGTH_SHORT)
+                        .show()
+                    stopSelf()
+                }
+            } catch (ex: Exception) {
+                Toast.makeText(applicationContext, "Ошибка запуска сервиса", Toast.LENGTH_SHORT)
+                    .show()
                 stopSelf()
             }
         }

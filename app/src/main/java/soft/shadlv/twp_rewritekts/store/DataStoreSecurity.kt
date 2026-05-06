@@ -201,7 +201,7 @@ class DataStoreSecurity(context: Context) {
             cipher.doFinal(encryptedBytes)
         } catch (ex: Exception) {
             Log.e(DATA_STORE_TAG, "Error decrypting data", ex)
-            null
+            throw ex
         }
     }
 
@@ -225,6 +225,7 @@ class DataStoreSecurity(context: Context) {
             }
         } catch (ex: Exception) {
             Log.e(DATA_STORE_TAG, "Error saving object", ex)
+            throw ex
         }
     }
 
@@ -239,7 +240,7 @@ class DataStoreSecurity(context: Context) {
             Json.decodeFromString<T>(jsonString)
         }.onFailure {
             Log.w(DATA_STORE_TAG, "Config file read/parse error: ${it.message}")
-        }.getOrNull()
+        }.getOrThrow()
     }
 }
 
