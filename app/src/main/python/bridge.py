@@ -270,7 +270,7 @@ async def bridge_ws_reencrypt(reader, writer, ws: RawWebSocket, label,
         nonlocal down_bytes, down_packets
         try:
             while True:
-                data = await asyncio.wait_for(ws.recv(), timeout=10.0)
+                data = await ws.recv()
                 if data is None:
                     break
                 n = len(data)

@@ -14,6 +14,8 @@ from collections import deque
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from typing import Dict, List, Optional, Set, Tuple
 
+from MobileRTTEstimator import MobileRTTEstimator
+
 if __name__ == '__main__' and (__package__ is None or __package__ == ''):
     _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if _repo_root not in sys.path:
@@ -112,6 +114,7 @@ class _WsPool:
     def __init__(self):
         self._idle: Dict[Tuple[int, bool], deque] = {}
         self._refilling: Set[Tuple[int, bool]] = set()
+        self.estimator = MobileRTTEstimator()
 
     async def get(self, dc: int, is_media: bool,
                   target_ip: str, domains: List[str]
