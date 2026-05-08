@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import numpy as np
 import os
 import socket as _socket
 import ssl
@@ -39,14 +40,22 @@ class WsHandshakeError(Exception):
 def _xor_mask(data: bytes, mask: bytes) -> bytes:
     if not data:
         return data
-    res = bytearray(data)
-    view = memoryview(res)
+    data_np = np.frombuffer(data, dtype=np.uint8).copy()
 
-    for i in range(4):
-        m = mask[i]
-        view[i::4] = bytes(b ^ m for b in view[i::4])
+    mask_np = np.frombuffer(mask, dtype=np.uint8)
 
-    return bytes(res)
+    n = len(data_np)
+    remainder = n % 4
+    main_part_len = n - remainder
+
+    if main_part_len > 0:
+        part = data_np[:main_part_len].reshape(-1, 4)
+        np.bitwise_xor(part, mask_np, out=part)
+
+    if remainder > 0:
+        data_np[main_part_len:] ^= mask_np[:remainder]
+
+    return data_np.tobytes()
 
 
 
@@ -58,9 +67,10 @@ def set_sock_opts(transport, buffer_size):
     try:
         sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1)
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
-        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 50)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 40)
         sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, 10)
         sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, 5)
+        sock.setsockopt(_socket.IPPROTO_IP, _socket.IP_TOS, 0xB8)
     except (OSError, AttributeError):
         print("Error set sock options")
         pass
@@ -71,6 +81,15 @@ def set_sock_opts(transport, buffer_size):
     except OSError:
         pass
 
+WS_UPGRADE_TEMPLATE = (
+    b'GET /apiws HTTP/1.1\r\n'
+    b'Host: %b\r\n'
+    b'Upgrade: websocket\r\n'
+    b'Connection: Upgrade\r\n'
+    b'Sec-WebSocket-Key: %b\r\n'
+    b'Sec-WebSocket-Version: 13\r\n'
+    b'Sec-WebSocket-Protocol: binary\r\n\r\n'
+)
 
 class RawWebSocket:
     __slots__ = ('reader', 'writer', '_closed', '_ping_task')
@@ -97,30 +116,23 @@ class RawWebSocket:
         try:
             set_sock_opts(writer.transport, proxy_config.buffer_size)
 
-            ws_key = base64.b64encode(os.urandom(16)).decode()
+            ws_key = base64.b64encode(os.urandom(16))
 
-            req = (
-                f'GET /apiws HTTP/1.1\r\n'
-                f'Host: {domain}\r\n'
-                f'Upgrade: websocket\r\n'
-                f'Connection: Upgrade\r\n'
-                f'Sec-WebSocket-Key: {ws_key}\r\n'
-                f'Sec-WebSocket-Version: 13\r\n'
-                f'Sec-WebSocket-Protocol: binary\r\n'
-                f'\r\n'
-            )
-            writer.write(req.encode())
+            req = WS_UPGRADE_TEMPLATE % (domain.encode(), ws_key)
+            writer.write(req)
             await writer.drain()
 
             response_lines: list[str] = []
             try:
-                while True:
-                    line = await asyncio.wait_for(reader.readline(),
-                                                  timeout=timeout)
-                    if line in (b'\r\n', b'\n', b''):
-                        break
-                    response_lines.append(
-                        line.decode('utf-8', errors='replace').strip())
+                # while True:
+                #     line = await asyncio.wait_for(reader.readline(),
+                #                                   timeout=timeout)
+                #     if line in (b'\r\n', b'\n', b''):
+                #         break
+                #     response_lines.append(
+                #         line.decode('utf-8', errors='replace').strip())
+                header_data = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), timeout=timeout)
+                response_lines = header_data.decode('utf-8', errors='ignore').split('\r\n')
             except asyncio.TimeoutError:
                 raise
 
@@ -175,19 +187,22 @@ class RawWebSocket:
         if self._closed:
             raise ConnectionError("WebSocket closed")
 
-        current_batch_size = 0
+        batch = []
+        size = 0
         limit = 64 * 1024
 
         for part in parts:
             frame = self._build_frame(self.OP_BINARY, part, mask=True)
-            self.writer.write(frame)
-            current_batch_size += len(frame)
+            batch.append(frame)
+            size += len(frame)
 
-            if current_batch_size >= limit:
+            if size >= limit:
+                self.writer.write(b''.join(batch))
                 await self.writer.drain()
-                current_batch_size = 0
+                batch, size = [], 0
 
-        if current_batch_size > 0:
+        if batch:
+            self.writer.write(b''.join(batch))
             await self.writer.drain()
 
     async def recv(self) -> Optional[bytes]:
@@ -226,6 +241,13 @@ class RawWebSocket:
         if self._closed:
             return
         self._closed = True
+
+        self._ping_task.cancel()
+        try:
+            await self._ping_task
+        except Exception:
+            pass
+
         try:
             self.writer.write(
                 self._build_frame(self.OP_CLOSE, b'', mask=True))
@@ -258,7 +280,7 @@ class RawWebSocket:
         return _st_BBQ4s.pack(fb, 0x80 | 127, length, mask_key) + masked
 
     async def _read_frame(self) -> Tuple[int, bytes]:
-        hdr = await asyncio.wait_for(self.reader.readexactly(2), timeout=120)
+        hdr = await self.reader.readexactly(2)
         opcode = hdr[0] & 0x0F
         length = hdr[1] & 0x7F
         if length == 126:

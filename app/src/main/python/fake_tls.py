@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import hashlib
+import hmac
+import logging
 import os
 import random
 import struct
 import time
-import logging
-
 from typing import Optional, Tuple
-from stats import stats
 
+from stats import stats
 
 log = logging.getLogger('tg-mtproto-proxy')
 
@@ -164,13 +163,13 @@ class FakeTlsStream:
             return data
 
         while True:
-            hdr = await self._reader.readexactly(5)
+            hdr = await asyncio.wait_for(self._reader.readexactly(5), timeout=10.0)
             rtype = hdr[0]
             rec_len = struct.unpack('>H', hdr[3:5])[0]
 
             if rtype == TLS_RECORD_CCS:
                 if rec_len > 0:
-                    await self._reader.readexactly(rec_len)
+                    await asyncio.wait_for(self._reader.readexactly(rec_len), timeout=10.0)
                 continue
 
             if rtype != TLS_RECORD_APPDATA:
