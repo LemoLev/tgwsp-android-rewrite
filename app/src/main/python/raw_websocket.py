@@ -69,22 +69,36 @@ def set_sock_opts(transport, buffer_size):
     if sock is None:
         return
 
+    transport.set_write_buffer_limits(high=buffer_size, low=256 * 1024)
     try:
         sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1)
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
-        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 40)
-        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, 10)
-        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, 5)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 11)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, 5)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, 3)
         sock.setsockopt(_socket.IPPROTO_IP, _socket.IP_TOS, 0xB8)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_USER_TIMEOUT, 10000)
     except (OSError, AttributeError):
-        log.debud("Error set sock options")
+        log.debug("Error set sock options")
+        pass
+
+    try:
+        sock.setsockopt(_socket.SOL_TCP, _socket.TCP_NOTSENT_LOWAT, 32 * 1024 )
+    except (OSError, AttributeError):
+        log.debug("Error set sock options - TCP_NOTSENT_LOWAT")
+        pass
+
+    try:
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_CONGESTION, b'bbr')
+    except (OSError, AttributeError):
+        log.debug("Error set sock options - TCP_CONGESTION bbr")
         pass
 
     try:
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_RCVBUF, buffer_size)
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_SNDBUF, buffer_size)
     except OSError:
-        log.debud("Error set sock options buffer")
+        log.debug("Error set sock options buffer")
         pass
 
 WS_UPGRADE_TEMPLATE = (
@@ -98,7 +112,7 @@ WS_UPGRADE_TEMPLATE = (
 )
 
 class RawWebSocket:
-    __slots__ = ('reader', 'writer', '_closed', '_ping_task')
+    __slots__ = ('reader', 'writer', '_closed')
 
     OP_BINARY = 0x2
     OP_CLOSE = 0x8
@@ -112,7 +126,6 @@ class RawWebSocket:
         self.reader = reader
         self.writer = writer
         self._closed = False
-        self._ping_task = asyncio.create_task(self._ping_loop())
 
     @staticmethod
     async def connect(host: str, domain: str, timeout: float = 10.0) -> 'RawWebSocket':
@@ -144,7 +157,8 @@ class RawWebSocket:
                     #         break
                     #     response_lines.append(
                     #         line.decode('utf-8', errors='replace').strip())
-                    header_data = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), timeout=RawWebSocket.ESTIMATOR._current_rto * 5)
+                    header_timeout = max(timeout, RawWebSocket.ESTIMATOR._current_rto * 2)
+                    header_data = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), timeout=header_timeout)
                     response_lines = header_data.decode('utf-8', errors='ignore').split('\r\n')
                 except asyncio.TimeoutError:
                     RawWebSocket.ESTIMATOR.penalty_timeout()
@@ -181,21 +195,6 @@ class RawWebSocket:
         except asyncio.TimeoutError:
             RawWebSocket.ESTIMATOR.penalty_timeout()
             raise
-
-    async def _ping_loop(self):
-        try:
-            while not self._closed:
-                await asyncio.sleep(30)
-                if not self._closed:
-                    # Шлем пустой PING фрейм
-                    self.writer.write(self._build_frame(self.OP_PING, b'', mask=True))
-
-                    start = time.perf_counter()
-                    await asyncio.wait_for(self.writer.drain(), timeout=RawWebSocket.ESTIMATOR._current_rto)
-                    rtt = (time.perf_counter() - start) * 1000.0
-                    RawWebSocket.ESTIMATOR.update(rtt)
-        except Exception:
-            pass
 
     async def send(self, data: bytes):
         try:
@@ -291,12 +290,6 @@ class RawWebSocket:
         if self._closed:
             return
         self._closed = True
-
-        self._ping_task.cancel()
-        try:
-            await self._ping_task
-        except Exception:
-            pass
 
         try:
             self.writer.write(
