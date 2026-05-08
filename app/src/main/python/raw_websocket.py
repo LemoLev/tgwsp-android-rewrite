@@ -39,10 +39,15 @@ class WsHandshakeError(Exception):
 def _xor_mask(data: bytes, mask: bytes) -> bytes:
     if not data:
         return data
-    n = len(data)
-    mask_rep = (mask * (n // 4 + 1))[:n]
-    return (int.from_bytes(data, 'big') ^
-            int.from_bytes(mask_rep, 'big')).to_bytes(n, 'big')
+    res = bytearray(data)
+    view = memoryview(res)
+
+    for i in range(4):
+        m = mask[i]
+        view[i::4] = bytes(b ^ m for b in view[i::4])
+
+    return bytes(res)
+
 
 
 def set_sock_opts(transport, buffer_size):
@@ -52,7 +57,12 @@ def set_sock_opts(transport, buffer_size):
 
     try:
         sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 50)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, 10)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, 5)
     except (OSError, AttributeError):
+        print("Error set sock options")
         pass
 
     try:
@@ -63,7 +73,7 @@ def set_sock_opts(transport, buffer_size):
 
 
 class RawWebSocket:
-    __slots__ = ('reader', 'writer', '_closed')
+    __slots__ = ('reader', 'writer', '_closed', '_ping_task')
 
     OP_BINARY = 0x2
     OP_CLOSE = 0x8
@@ -75,13 +85,14 @@ class RawWebSocket:
         self.reader = reader
         self.writer = writer
         self._closed = False
+        self._ping_task = asyncio.create_task(self._ping_loop())
 
     @staticmethod
     async def connect(host: str, domain: str, timeout: float = 10.0) -> 'RawWebSocket':
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, 443, ssl=_ssl_ctx,
                                     server_hostname=domain),
-            timeout=min(timeout, 10))
+            timeout=min(timeout, 5))
 
         try:
             set_sock_opts(writer.transport, proxy_config.buffer_size)
@@ -142,6 +153,17 @@ class RawWebSocket:
                 pass
             raise
 
+    async def _ping_loop(self):
+        try:
+            while not self._closed:
+                await asyncio.sleep(30)
+                if not self._closed:
+                    # Шлем пустой PING фрейм
+                    self.writer.write(self._build_frame(self.OP_PING, b'', mask=True))
+                    await self.writer.drain()
+        except Exception:
+            await self.close()
+
     async def send(self, data: bytes):
         if self._closed:
             raise ConnectionError("WebSocket closed")
@@ -152,10 +174,21 @@ class RawWebSocket:
     async def send_batch(self, parts: List[bytes]):
         if self._closed:
             raise ConnectionError("WebSocket closed")
+
+        current_batch_size = 0
+        limit = 64 * 1024
+
         for part in parts:
-            self.writer.write(
-                self._build_frame(self.OP_BINARY, part, mask=True))
-        await self.writer.drain()
+            frame = self._build_frame(self.OP_BINARY, part, mask=True)
+            self.writer.write(frame)
+            current_batch_size += len(frame)
+
+            if current_batch_size >= limit:
+                await self.writer.drain()
+                current_batch_size = 0
+
+        if current_batch_size > 0:
+            await self.writer.drain()
 
     async def recv(self) -> Optional[bytes]:
         while not self._closed:
@@ -225,7 +258,7 @@ class RawWebSocket:
         return _st_BBQ4s.pack(fb, 0x80 | 127, length, mask_key) + masked
 
     async def _read_frame(self) -> Tuple[int, bytes]:
-        hdr = await self.reader.readexactly(2)
+        hdr = await asyncio.wait_for(self.reader.readexactly(2), timeout=120)
         opcode = hdr[0] & 0x0F
         length = hdr[1] & 0x7F
         if length == 126:

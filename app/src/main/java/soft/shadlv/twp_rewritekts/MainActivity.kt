@@ -60,13 +60,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(
-            "TGProxyService.MainActivity",
+            ".MainActivity",
             "Proxy starting: Proxy Process PID: ${android.os.Process.myPid()}"
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
         }
 
+        checkExit()
 
         enableEdgeToEdge()
         setContent {
