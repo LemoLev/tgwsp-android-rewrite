@@ -163,13 +163,13 @@ class FakeTlsStream:
             return data
 
         while True:
-            hdr = await asyncio.wait_for(self._reader.readexactly(5), timeout=10.0)
+            hdr = await self._reader.readexactly(5)
             rtype = hdr[0]
             rec_len = struct.unpack('>H', hdr[3:5])[0]
 
             if rtype == TLS_RECORD_CCS:
                 if rec_len > 0:
-                    await asyncio.wait_for(self._reader.readexactly(rec_len), timeout=10.0)
+                    await self._reader.readexactly(rec_len)
                 continue
 
             if rtype != TLS_RECORD_APPDATA:

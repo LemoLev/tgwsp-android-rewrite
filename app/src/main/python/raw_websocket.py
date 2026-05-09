@@ -223,7 +223,7 @@ class RawWebSocket:
 
             if size >= limit:
                 self.writer.write(b''.join(batch))
-                batch_timeout = max(3.0, RawWebSocket.ESTIMATOR._current_rto * 3)
+                batch_timeout = max(5.0, RawWebSocket.ESTIMATOR._current_rto * 2)
                 try:
                     await asyncio.wait_for(self.writer.drain(), timeout=batch_timeout)
                     batch, size = [], 0
