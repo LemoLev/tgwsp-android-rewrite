@@ -134,11 +134,9 @@ class RawWebSocket:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, 443, ssl=_ssl_ctx,
                                         server_hostname=domain),
-                timeout=max(timeout / 2, RawWebSocket.ESTIMATOR._current_rto))
+                timeout=max(timeout, RawWebSocket.ESTIMATOR._current_rto))
 
-            rtt = (time.perf_counter() - start) * 1000.0
-            RawWebSocket.ESTIMATOR.update(rtt)
-            log.debug("Current TRO: %s", RawWebSocket.ESTIMATOR._current_rto)
+            log.info("Current TRO: %s", RawWebSocket.ESTIMATOR._current_rto)
             try:
                 set_sock_opts(writer.transport, proxy_config.buffer_size)
 

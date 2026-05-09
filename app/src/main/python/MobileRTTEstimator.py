@@ -43,7 +43,8 @@ class MobileRTTEstimator:
             self.min_rtt = measured_rtt_ms
 
         self._last_update = now
-        self._current_rto = (self.srtt + max(50.0, 4 * self.rttvar)) / 1000  # возврат в секундах
+        self._current_rto = min(35000, (self.srtt + max(50.0,
+                                                        4 * self.rttvar))) / 1000  # возврат в секундах
 
     def penalty_timeout(self):
         """Вызывать, если словили asyncio.TimeoutError"""
@@ -54,5 +55,5 @@ class MobileRTTEstimator:
             self.rttvar *= 1.5
             # Ограничиваем сверху, чтобы не уйти в бесконечность
             self.srtt = min(self.srtt, self._max_rto)
-            self._current_rto = (self.srtt + max(50.0,
-                                                 4 * self.rttvar)) / 1000  # возврат в секундах
+            self._current_rto = min(35000, (self.srtt + max(50.0,
+                                                            4 * self.rttvar))) / 1000  # возврат в секундах
