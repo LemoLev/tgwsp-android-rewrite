@@ -1,12 +1,18 @@
 import asyncio
 import base64
+import logging
+import numpy as np
 import os
 import socket as _socket
 import ssl
 import struct
+import time
 from typing import List, Optional, Tuple
 
+from MobileRTTEstimator import MobileRTTEstimator
 from config import proxy_config
+
+log = logging.getLogger('tg-mtproto-proxy')
 
 _st_BB = struct.Struct('>BB')
 _st_BBH = struct.Struct('>BBH')
@@ -39,10 +45,23 @@ class WsHandshakeError(Exception):
 def _xor_mask(data: bytes, mask: bytes) -> bytes:
     if not data:
         return data
-    n = len(data)
-    mask_rep = (mask * (n // 4 + 1))[:n]
-    return (int.from_bytes(data, 'big') ^
-            int.from_bytes(mask_rep, 'big')).to_bytes(n, 'big')
+    data_np = np.frombuffer(data, dtype=np.uint8).copy()
+
+    mask_np = np.frombuffer(mask, dtype=np.uint8)
+
+    n = len(data_np)
+    remainder = n % 4
+    main_part_len = n - remainder
+
+    if main_part_len > 0:
+        part = data_np[:main_part_len].reshape(-1, 4)
+        np.bitwise_xor(part, mask_np, out=part)
+
+    if remainder > 0:
+        data_np[main_part_len:] ^= mask_np[:remainder]
+
+    return data_np.tobytes()
+
 
 
 def set_sock_opts(transport, buffer_size):
@@ -50,17 +69,47 @@ def set_sock_opts(transport, buffer_size):
     if sock is None:
         return
 
+    transport.set_write_buffer_limits(high=buffer_size, low=256 * 1024)
     try:
         sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 11)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, 5)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, 3)
+        sock.setsockopt(_socket.IPPROTO_IP, _socket.IP_TOS, 0xB8)
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_USER_TIMEOUT, 10000)
     except (OSError, AttributeError):
+        log.debug("Error set sock options")
+        pass
+
+    try:
+        sock.setsockopt(_socket.SOL_TCP, _socket.TCP_NOTSENT_LOWAT, 32 * 1024 )
+    except (OSError, AttributeError):
+        log.debug("Error set sock options - TCP_NOTSENT_LOWAT")
+        pass
+
+    try:
+        sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_CONGESTION, b'bbr')
+    except (OSError, AttributeError):
+        log.debug("Error set sock options - TCP_CONGESTION bbr")
         pass
 
     try:
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_RCVBUF, buffer_size)
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_SNDBUF, buffer_size)
     except OSError:
+        log.debug("Error set sock options buffer")
         pass
 
+WS_UPGRADE_TEMPLATE = (
+    b'GET /apiws HTTP/1.1\r\n'
+    b'Host: %b\r\n'
+    b'Upgrade: websocket\r\n'
+    b'Connection: Upgrade\r\n'
+    b'Sec-WebSocket-Key: %b\r\n'
+    b'Sec-WebSocket-Version: 13\r\n'
+    b'Sec-WebSocket-Protocol: binary\r\n\r\n'
+)
 
 class RawWebSocket:
     __slots__ = ('reader', 'writer', '_closed')
@@ -70,6 +119,8 @@ class RawWebSocket:
     OP_PING = 0x9
     OP_PONG = 0xA
 
+    ESTIMATOR: MobileRTTEstimator = MobileRTTEstimator()
+
     def __init__(self, reader: asyncio.StreamReader,
                  writer: asyncio.StreamWriter):
         self.reader = reader
@@ -78,84 +129,118 @@ class RawWebSocket:
 
     @staticmethod
     async def connect(host: str, domain: str, timeout: float = 10.0) -> 'RawWebSocket':
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, 443, ssl=_ssl_ctx,
-                                    server_hostname=domain),
-            timeout=min(timeout, 10))
-
         try:
-            set_sock_opts(writer.transport, proxy_config.buffer_size)
+            start = time.perf_counter()
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, 443, ssl=_ssl_ctx,
+                                        server_hostname=domain),
+                timeout=max(timeout, RawWebSocket.ESTIMATOR._current_rto))
 
-            ws_key = base64.b64encode(os.urandom(16)).decode()
-
-            req = (
-                f'GET /apiws HTTP/1.1\r\n'
-                f'Host: {domain}\r\n'
-                f'Upgrade: websocket\r\n'
-                f'Connection: Upgrade\r\n'
-                f'Sec-WebSocket-Key: {ws_key}\r\n'
-                f'Sec-WebSocket-Version: 13\r\n'
-                f'Sec-WebSocket-Protocol: binary\r\n'
-                f'\r\n'
-            )
-            writer.write(req.encode())
-            await writer.drain()
-
-            response_lines: list[str] = []
+            log.info("Current TRO: %s", RawWebSocket.ESTIMATOR._current_rto)
             try:
-                while True:
-                    line = await asyncio.wait_for(reader.readline(),
-                                                  timeout=timeout)
-                    if line in (b'\r\n', b'\n', b''):
-                        break
-                    response_lines.append(
-                        line.decode('utf-8', errors='replace').strip())
-            except asyncio.TimeoutError:
+                set_sock_opts(writer.transport, proxy_config.buffer_size)
+
+                ws_key = base64.b64encode(os.urandom(16))
+
+                req = WS_UPGRADE_TEMPLATE % (domain.encode(), ws_key)
+                writer.write(req)
+                await writer.drain()
+
+                response_lines: list[str] = []
+                try:
+                    # while True:
+                    #     line = await asyncio.wait_for(reader.readline(),
+                    #                                   timeout=timeout)
+                    #     if line in (b'\r\n', b'\n', b''):
+                    #         break
+                    #     response_lines.append(
+                    #         line.decode('utf-8', errors='replace').strip())
+                    header_timeout = max(timeout, RawWebSocket.ESTIMATOR._current_rto * 2)
+                    header_data = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), timeout=header_timeout)
+                    response_lines = header_data.decode('utf-8', errors='ignore').split('\r\n')
+                except asyncio.TimeoutError:
+                    RawWebSocket.ESTIMATOR.penalty_timeout()
+                    raise
+
+                if not response_lines:
+                    raise WsHandshakeError(0, 'empty response')
+
+                first_line = response_lines[0]
+                parts = first_line.split(' ', 2)
+                try:
+                    status_code = int(parts[1]) if len(parts) >= 2 else 0
+                except ValueError:
+                    status_code = 0
+
+                if status_code == 101:
+                    return RawWebSocket(reader, writer)
+
+                headers: dict[str, str] = {}
+                for hl in response_lines[1:]:
+                    if ':' in hl:
+                        k, v = hl.split(':', 1)
+                        headers[k.strip().lower()] = v.strip()
+
+                raise WsHandshakeError(status_code, first_line, headers,
+                                       location=headers.get('location'))
+            except Exception:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except:
+                    pass
                 raise
-
-            if not response_lines:
-                raise WsHandshakeError(0, 'empty response')
-
-            first_line = response_lines[0]
-            parts = first_line.split(' ', 2)
-            try:
-                status_code = int(parts[1]) if len(parts) >= 2 else 0
-            except ValueError:
-                status_code = 0
-
-            if status_code == 101:
-                return RawWebSocket(reader, writer)
-
-            headers: dict[str, str] = {}
-            for hl in response_lines[1:]:
-                if ':' in hl:
-                    k, v = hl.split(':', 1)
-                    headers[k.strip().lower()] = v.strip()
-
-            raise WsHandshakeError(status_code, first_line, headers,
-                                   location=headers.get('location'))
-        except Exception:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except:
-                pass
+        except asyncio.TimeoutError:
+            RawWebSocket.ESTIMATOR.penalty_timeout()
             raise
 
     async def send(self, data: bytes):
-        if self._closed:
-            raise ConnectionError("WebSocket closed")
-        frame = self._build_frame(self.OP_BINARY, data, mask=True)
-        self.writer.write(frame)
-        await self.writer.drain()
+        try:
+            if self._closed:
+                raise ConnectionError("WebSocket closed")
+            frame = self._build_frame(self.OP_BINARY, data, mask=True)
+            self.writer.write(frame)
+            start = time.perf_counter()
+            await asyncio.wait_for(self.writer.drain(), timeout=RawWebSocket.ESTIMATOR._current_rto)
+            rtt = (time.perf_counter() - start) * 1000.0
+            RawWebSocket.ESTIMATOR.update(rtt)
+        except asyncio.TimeoutError:
+            RawWebSocket.ESTIMATOR.penalty_timeout()
+            raise
 
     async def send_batch(self, parts: List[bytes]):
         if self._closed:
             raise ConnectionError("WebSocket closed")
+
+        batch = []
+        size = 0
+        limit = 64 * 1024
+
         for part in parts:
-            self.writer.write(
-                self._build_frame(self.OP_BINARY, part, mask=True))
-        await self.writer.drain()
+            frame = self._build_frame(self.OP_BINARY, part, mask=True)
+            batch.append(frame)
+            size += len(frame)
+
+            if size >= limit:
+                self.writer.write(b''.join(batch))
+                batch_timeout = max(5.0, RawWebSocket.ESTIMATOR._current_rto * 2)
+                try:
+                    await asyncio.wait_for(self.writer.drain(), timeout=batch_timeout)
+                    batch, size = [], 0
+                except asyncio.TimeoutError:
+                    RawWebSocket.ESTIMATOR.penalty_timeout()
+                    raise
+
+        if batch:
+            try:
+                self.writer.write(b''.join(batch))
+                start = time.perf_counter()
+                await asyncio.wait_for(self.writer.drain(), timeout=RawWebSocket.ESTIMATOR._current_rto)
+                rtt = (time.perf_counter() - start) * 1000.0
+                RawWebSocket.ESTIMATOR.update(rtt)
+            except asyncio.TimeoutError:
+                RawWebSocket.ESTIMATOR.penalty_timeout()
+                raise
 
     async def recv(self) -> Optional[bytes]:
         while not self._closed:
@@ -167,7 +252,12 @@ class RawWebSocket:
                     self.writer.write(self._build_frame(
                         self.OP_CLOSE,
                         payload[:2] if payload else b'', mask=True))
-                    await self.writer.drain()
+                    start = time.perf_counter()
+                    await asyncio.wait_for(self.writer.drain(), timeout=RawWebSocket.ESTIMATOR._current_rto)
+                    rtt = (time.perf_counter() - start) * 1000.0
+                    RawWebSocket.ESTIMATOR.update(rtt)
+                except asyncio.TimeoutError:
+                    RawWebSocket.ESTIMATOR.penalty_timeout()
                 except Exception:
                     pass
                 return None
@@ -176,7 +266,12 @@ class RawWebSocket:
                 try:
                     self.writer.write(
                         self._build_frame(self.OP_PONG, payload, mask=True))
-                    await self.writer.drain()
+                    start = time.perf_counter()
+                    await asyncio.wait_for(self.writer.drain(), timeout=RawWebSocket.ESTIMATOR._current_rto)
+                    rtt = (time.perf_counter() - start) * 1000.0
+                    RawWebSocket.ESTIMATOR.update(rtt)
+                except asyncio.TimeoutError:
+                    RawWebSocket.ESTIMATOR.penalty_timeout()
                 except Exception:
                     pass
                 continue
@@ -193,10 +288,14 @@ class RawWebSocket:
         if self._closed:
             return
         self._closed = True
+
         try:
             self.writer.write(
                 self._build_frame(self.OP_CLOSE, b'', mask=True))
+            start = time.perf_counter()
             await self.writer.drain()
+            rtt = (time.perf_counter() - start) * 1000.0
+            RawWebSocket.ESTIMATOR.update(rtt)
         except Exception:
             pass
         try:

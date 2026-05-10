@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import hashlib
+import hmac
+import logging
 import os
 import random
 import struct
 import time
-import logging
-
 from typing import Optional, Tuple
-from stats import stats
 
+from stats import stats
 
 log = logging.getLogger('tg-mtproto-proxy')
 

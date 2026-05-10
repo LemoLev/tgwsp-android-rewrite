@@ -93,6 +93,7 @@ chaquopy {
         version = "3.11"
         pip {
             install("cryptography")
+            install("numpy")
         }
         staticProxy("main")
     }

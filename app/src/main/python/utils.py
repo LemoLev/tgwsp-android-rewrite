@@ -1,7 +1,8 @@
+import http.client
 import socket as _socket
-
-from typing import Optional
-
+import urllib.request
+from typing import Optional, Dict
+from urllib.request import Request
 
 ZERO_64 = b'\x00' * 64
 HANDSHAKE_LEN = 64
@@ -26,6 +27,11 @@ RESERVED_STARTS = {b'\x48\x45\x41\x44', b'\x50\x4F\x53\x54',
                    b'\xdd\xdd\xdd\xdd', b'\x16\x03\x01\x02'}
 RESERVED_CONTINUE = b'\x00\x00\x00\x00'
 
+_GITHUB_IPS: Dict[str, str] = {
+    "release-assets.githubusercontent.com": "185.199.109.133",
+    "raw.githubusercontent.com": "185.199.109.133",
+}
+
 
 def human_bytes(n: int) -> str:
     for unit in ('B', 'KB', 'MB', 'GB'):
@@ -46,3 +52,31 @@ def get_link_host(host: str) -> Optional[str]:
         return link_host
     else:
         return host
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req: Request):
+        host = req.host.split(":")[0]
+        ip = _GITHUB_IPS.get(host)
+        if not ip:
+            return super().https_open(req)
+        pinned = ip
+
+        class _Conn(http.client.HTTPSConnection):
+            def connect(self):
+                self.sock = _socket.create_connection(
+                    (pinned, self.port or 443),
+                    self.timeout,
+                    self.source_address,
+                )
+                if self._tunnel_host:
+                    self._tunnel()
+                self.sock = self._context.wrap_socket(
+                    self.sock, server_hostname=self._tunnel_host or self.host
+                )
+
+        return self.do_open(_Conn, req)
+
+
+def build_github_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(_PinnedHTTPSHandler())

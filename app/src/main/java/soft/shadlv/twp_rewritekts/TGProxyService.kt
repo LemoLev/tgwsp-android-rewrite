@@ -116,10 +116,6 @@ class TGProxyService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            updateProxyStatus(false)
-        }
-
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
         }
@@ -164,6 +160,11 @@ class TGProxyService : LifecycleService() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.d("TGProxyService", "Stop_hard")
+    }
+
     @Synchronized
     private fun startProxy() {
         if (isRun) return
@@ -196,8 +197,7 @@ class TGProxyService : LifecycleService() {
             withTimeoutOrNull(1500) {
                 proxyControl.stop_proxy()
             }
-            updateProxyStatus(false)
-            updateNotificationStatus("Прокси остановлен")
+            updateProxyStatus(false, "Прокси остановлен")
         }
     }
 
@@ -212,8 +212,7 @@ class TGProxyService : LifecycleService() {
 
                 val dcip = input.dcip.replace(";", "\n")
 
-                updateNotificationStatus("Прокси запущен")
-                updateProxyStatus(true)
+                updateProxyStatus(true, "Прокси запущен")
 
                 proxyControl.start_proxy(input.host, input.port, dcip, input.secret)
 
@@ -228,9 +227,7 @@ class TGProxyService : LifecycleService() {
             if (e is PyException) "PYTHON CRASHED: ${e.message}" else "Generic error: ${e.message}"
         Log.e("TGProxyService", errorMessage)
 
-        updateNotificationStatus("Ошибка: Прокси остановлен")
-        updateProxyStatus(false)
-        isRun = false
+        updateProxyStatus(false, "Ошибка: Прокси остановлен")
     }
 
     private fun createNotificationChannel() {
@@ -250,14 +247,11 @@ class TGProxyService : LifecycleService() {
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(isRun)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
-    private fun updateNotificationStatus(text: String) {
-        notificationManager.notify(NOTIFICATION_ID, buildNotification(text))
-    }
-
-    private suspend fun updateProxyStatus(status: Boolean) =
+    private suspend fun updateProxyStatus(status: Boolean, text: String) =
         withContext(Dispatchers.IO) {
             try {
                 Log.d("TGProxyService", "Update status $status")
@@ -266,10 +260,15 @@ class TGProxyService : LifecycleService() {
                     status
                 }
                 isRun = status
+                updateNotificationStatus(text)
             } catch (ex: Exception) {
                 Log.d("TGProxyService", "Error write status")
             }
         }
+
+    private fun updateNotificationStatus(text: String) {
+        notificationManager.notify(NOTIFICATION_ID, buildNotification(text))
+    }
 }
 
 internal object PythonBackgroundEngine {
