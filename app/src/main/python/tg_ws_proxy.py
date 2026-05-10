@@ -1,21 +1,18 @@
-
 from __future__ import annotations
 
-import os
-import sys
-import time
-import struct
+import argparse
 import asyncio
 import hashlib
-import argparse
 import logging
 import logging.handlers
+import os
 import socket as _socket
-
+import struct
+import sys
+import time
 from collections import deque
-from typing import Dict, List, Optional, Set, Tuple
-
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from typing import Dict, List, Optional, Set, Tuple
 
 if __name__ == '__main__' and (__package__ is None or __package__ == ''):
     _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -202,6 +199,14 @@ class _WsPool:
         log.info("WS pool warmup started for %d DC(s)", len(dc_redirects))
 
     def reset(self):
+        self._idle.clear()
+        self._refilling.clear()
+
+    async def shutdown(self):
+        for bucket in self._idle.values():
+            while bucket:
+                ws, _ = bucket.popleft()
+                asyncio.create_task(self._quiet_close(ws))
         self._idle.clear()
         self._refilling.clear()
 
@@ -534,6 +539,7 @@ _client_tasks: Set[asyncio.Task] = set()
 
 
 async def _run(stop_event: Optional[asyncio.Event] = None):
+    print("run")
     global _server_instance, _server_stop_event
     _server_stop_event = stop_event
 
@@ -640,6 +646,13 @@ async def _run(stop_event: Optional[asyncio.Event] = None):
                 await server.serve_forever()
     finally:
         log_stats_task.cancel()
+        await _ws_pool.shutdown()
+        print("Stop Server - interrupt")
+        if _client_tasks:
+            for t in _client_tasks:
+                t.cancel()
+        await asyncio.gather(*_client_tasks, return_exceptions=True)
+        _client_tasks.clear()
         try:
             await log_stats_task
         except asyncio.CancelledError:
@@ -736,15 +749,15 @@ def main(argss, stop_event: Optional[asyncio.Event], loop: Optional[asyncio.Abst
     console.setFormatter(log_fmt)
     root.addHandler(console)
 
-    if args.log_file:
-        fh = logging.handlers.RotatingFileHandler(
-            args.log_file,
-            maxBytes=max(32 * 1024, int(args.log_max_mb * 1024 * 1024)),
-            backupCount=max(0, args.log_backups),
-            encoding='utf-8',
-        )
-        fh.setFormatter(log_fmt)
-        root.addHandler(fh)
+    # if args.log_file:
+    #     fh = logging.handlers.RotatingFileHandler(
+    #         args.log_file,
+    #         maxBytes=max(32 * 1024, int(args.log_max_mb * 1024 * 1024)),
+    #         backupCount=max(0, args.log_backups),
+    #         encoding='utf-8',
+    #     )
+    #     fh.setFormatter(log_fmt)
+    #     root.addHandler(fh)
 
     logging.getLogger('asyncio').setLevel(logging.WARNING)
 
@@ -752,6 +765,14 @@ def main(argss, stop_event: Optional[asyncio.Event], loop: Optional[asyncio.Abst
         loop.run_until_complete(_run(stop_event))
     except KeyboardInterrupt:
         log.info("Shutting down. Final stats: %s", stats.summary())
+    finally:
+        root = logging.getLogger()
+        for handler in root.handlers[:]:
+            try:
+                handler.close()
+                root.removeHandler(handler)
+            except Exception as e:
+                print(f"Error closing handler: {e}")
 
 
 if __name__ == '__main__':
