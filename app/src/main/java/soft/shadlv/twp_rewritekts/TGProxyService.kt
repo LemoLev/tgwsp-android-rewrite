@@ -76,7 +76,7 @@ object ServiceDataStoreProvider {
             instance ?: MultiProcessDataStoreFactory.create(
                 serializer = StatusSerializer,
                 produceFile = {
-                    File(context.filesDir, "time.json")
+                    File(context.filesDir, "status.json")
                 },
                 corruptionHandler = null
             ).also { instance = it }
@@ -97,6 +97,9 @@ class TGProxyService : LifecycleService() {
     @Volatile
     private var isRun = false
 
+    /**
+     * Нет смысла держать прокси рабочим, если устройство в глубоком Doze
+     */
     private val dozeModeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -177,7 +180,11 @@ class TGProxyService : LifecycleService() {
                     startProxyEngine(proxyConfig)
                 } else {
                     Log.e("TGProxyService", "Config is null, stopping self")
-                    Toast.makeText(applicationContext, "Сохраните параметры в настройках", Toast.LENGTH_SHORT)
+                    Toast.makeText(
+                        applicationContext,
+                        "Сохраните параметры в настройках",
+                        Toast.LENGTH_SHORT
+                    )
                         .show()
                     stopSelf()
                 }

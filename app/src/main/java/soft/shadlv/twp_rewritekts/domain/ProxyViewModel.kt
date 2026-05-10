@@ -25,17 +25,23 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadConfig() {
         viewModelScope.launch {
-            val config = repository.getConfig()
+            try {
+                val config = repository.getConfig()
 
-            if (config != null) {
-                _uiState.update {
-                    it.copy(
-                        host = config.host,
-                        port = config.port,
-                        dcip = config.dcip,
-                        secret = config.secret
-                    )
+                if (config != null) {
+                    _uiState.update {
+                        it.copy(
+                            host = config.host,
+                            port = config.port,
+                            dcip = config.dcip,
+                            secret = config.secret
+                        )
+                    }
+                } else { // если конфига нет, сохраняем дефолтный
+                    saveToDisk(true)
                 }
+            } catch (ex: Exception) {
+
             }
         }
     }
@@ -51,11 +57,11 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
             is ProxyIntent.UpdateDcip -> _uiState.update { it.copy(dcip = intent.dcip) }
             is ProxyIntent.RegenerateSecret -> _uiState.update { it.copy(secret = generateHexToken()) }
-            is ProxyIntent.SaveConfig -> viewModelScope.launch { saveToDisk() }
+            is ProxyIntent.SaveConfig -> viewModelScope.launch { saveToDisk(false) }
         }
     }
 
-    private suspend fun saveToDisk() {
+    private suspend fun saveToDisk(isFirstStart: Boolean) {
         try {
             val state = _uiState.value
             val proxyConfig = ProxyConfig(
@@ -65,9 +71,11 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
                 secret = state.secret
             )
             repository.saveConfig(proxyConfig)
-            Toast.makeText(context, "Успешно сохранено", Toast.LENGTH_SHORT).show()
+            if (!isFirstStart) Toast.makeText(context, "Успешно сохранено", Toast.LENGTH_SHORT)
+                .show()
         } catch (ex: Exception) {
-            Toast.makeText(context, "Ошибка сохранения", Toast.LENGTH_SHORT).show()
+            if (!isFirstStart) Toast.makeText(context, "Ошибка сохранения", Toast.LENGTH_SHORT)
+                .show()
         }
     }
 

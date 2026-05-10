@@ -36,11 +36,18 @@ class ProxyControlViewModel(application: Application) : AndroidViewModel(applica
 
     fun openTelegram() =
         viewModelScope.launch {
-            val config = repository.getConfig()
-            if (config != null) {
-                navigator.openTelegramFromProxy(config.host, config.port, config.secret)
-            } else {
-                Toast.makeText(context, "Нет необходимой конфигурации", Toast.LENGTH_SHORT).show()
+            try {
+                val config = repository.getConfig()
+                if (config != null) {
+                    navigator.openTelegramFromProxy(config.host, config.port, config.secret)
+                } else {
+                    Toast.makeText(context, "Нет необходимой конфигурации", Toast.LENGTH_SHORT)
+                        .show()
+                }
+            } catch (ex: Exception) {
+                Log.e("ProxyControlVM", "Error read config prop", ex)
+                Toast.makeText(context, "Ошибка чтения конфигурации", Toast.LENGTH_SHORT)
+                    .show()
             }
         }
 

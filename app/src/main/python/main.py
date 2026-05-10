@@ -52,7 +52,7 @@ class ProxyControl(static_proxy()):
                 gc.collect()
                 import os
                 print("fd process")
-                print(len(os.listdir(f'/proc/{os.getpid()}/fd')))
+                print(len(os.listdir(f'/proc/{os.getpid()}/fd'))) # для дебага - смотрим, чтоб дескприторы не утекали
                 asyncio.set_event_loop(None)
                 self.loop = None
                 self.stop_event = None
@@ -62,8 +62,3 @@ class ProxyControl(static_proxy()):
         if self.loop and self.stop_event:
             self.loop.call_soon_threadsafe(self.stop_event.set)
         print("Stop ProxyControl")
-
-    def warn_with_traceback(self, message, category, filename, lineno, file=None, line=None):
-        log = file if file else sys.stderr
-        traceback.print_stack(file=log)
-        print(f"{filename}:{lineno}: {category.__name__}: {message}", file=log)
