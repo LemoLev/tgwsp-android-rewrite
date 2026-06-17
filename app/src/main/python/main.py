@@ -1,50 +1,64 @@
-import backend
 import asyncio
-from java import static_proxy, jarray, jint, method, jvoid, jboolean
 from java.lang import String
+from typing import Optional
+
+import tg_ws_proxy
+from java import static_proxy, jarray, jint, method, jvoid, jboolean
+
 
 class ProxyControl(static_proxy()):
-    exception = "nothing. all good"
-    isRunning = False
-    host, port, dcip = "", 0, []
+    def __init__(self):
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.stop_event: Optional[asyncio.Event] = None
 
-    @method(jvoid, [String, jint, String])
-    def start_proxy(self, p_host: str, p_port: int, p_dcip: str):
-        self.host, self.port, self.dcip = p_host, p_port, p_dcip
-        cmd = ["--host", p_host, "--port", str(p_port)]
+    @method(jvoid, [String, jint, String, String])
+    def start_proxy(self, p_host: str, p_port: int, p_dcip: str, secret: str):
+        cmd = ["--port", str(p_port), "--host", p_host, "--secret", secret]
         dcips = p_dcip.split("\n")
+
+        cmd.append("--dc-ip")
+        proxies = []
         for d in dcips:
-            cmd.append("--dc-ip")
-            cmd.append(d)
+            proxies.append(d)
+
+        cmd.append(proxies)
         print(cmd)
+
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.stop_event = asyncio.Event()
+
         try:
-            self.exception = "nothing. all good"
-            backend.main(cmd)
-            self.isRunning = True
+            print("Start ProxyControl")
+            tg_ws_proxy.main(cmd, self.stop_event, self.loop)
         except Exception as e:
-            self.exception = str(e)
-            self.isRunning = False
-            print(self.exception)
+            print(f"Proxy error: {e}")
+        finally:
+            try:
+                pending = asyncio.all_tasks(self.loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self.loop.run_until_complete( asyncio.gather(*pending, return_exceptions=True))
+
+                self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+                self.loop.run_until_complete(self.loop.shutdown_default_executor())
+            except Exception as e:
+                print(f"Force close loop due to: {e}")
+            finally:
+                self.loop.close()
+                print("Close loops")
+                import gc
+                gc.collect()
+                import os
+                print("fd process")
+                print(len(os.listdir(f'/proc/{os.getpid()}/fd'))) # для дебага - смотрим, чтоб дескприторы не утекали
+                asyncio.set_event_loop(None)
+                self.loop = None
+                self.stop_event = None
 
     @method(jvoid, [])
     def stop_proxy(self):
-        self.host, self.port, self.dcip = "", 0, []
-        self.isRunning = False
-        backend.STOP_EVENT.set()
-        print("stop event set")
-        backend.STOP_EVENT.clear()
-
-    @method(String, [])
-    def check_proxy(self):
-        return self.exception
-
-    @method(String, [String, jint, String])
-    def start_and_check(self, p_host: str, p_port: int, p_dcip: str):
-        self.start_proxy(p_host, p_port, p_dcip)
-        if self.isRunning or self.exception == "":
-            return "SUCCESS"
-        else:
-            print(self.exception)
-            return self.exception
-
-
+        if self.loop and self.stop_event:
+            self.loop.call_soon_threadsafe(self.stop_event.set)
+        print("Stop ProxyControl")

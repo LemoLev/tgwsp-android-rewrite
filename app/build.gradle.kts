@@ -1,21 +1,32 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
-    id("com.chaquo.python")
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+
+    id("com.chaquo.python") version "17.0.0"
 }
 
 android {
     namespace = "soft.shadlv.twp_rewritekts"
-    compileSdk = 35
+    compileSdk {
+        version = release(36) {
+            minorApiLevel = 1
+        }
+    }
 
     defaultConfig {
         applicationId = "soft.shadlv.twp_rewritekts"
-        minSdk = 24
-        targetSdk = 35
+        minSdk = 28
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64", "x86", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
         }
     }
 
@@ -26,12 +37,27 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+            isMinifyEnabled = false
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
+    externalNativeBuild {
+        cmake {
+            version = "4.3.1"
+        }
+    }
+    buildFeatures {
+        compose = true
+        viewBinding = true
+    }
+
     splits {
         abi {
             // Enables the ABI splits mechanism
@@ -49,17 +75,17 @@ android {
             isUniversalApk = true
         }
     }
+    dependenciesInfo {
+        includeInApk = true
+        includeInBundle = true
+    }
+    buildToolsVersion = "37.0.0"
 }
 
-dependencies {
-
-    implementation(libs.appcompat)
-    implementation(libs.material)
-    implementation(libs.activity)
-    implementation(libs.constraintlayout)
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.ext.junit)
-    androidTestImplementation(libs.espresso.core)
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_17
+    }
 }
 
 chaquopy {
@@ -67,7 +93,39 @@ chaquopy {
         version = "3.11"
         pip {
             install("cryptography")
+            install("numpy")
         }
         staticProxy("main")
     }
+}
+
+dependencies {
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.lifecycle.service)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.squircleShape)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.material.icons)
+    implementation(libs.kotlin.serialization)
+    implementation(libs.androidx.datastore)
+    implementation(libs.androidx.preferences)
+
+    runtimeOnly(libs.androidx.security.crypto)
+
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
