@@ -102,7 +102,7 @@ def set_sock_opts(transport, buffer_size):
         pass
 
 WS_UPGRADE_TEMPLATE = (
-    b'GET /apiws HTTP/1.1\r\n'
+    b'GET %b HTTP/1.1\r\n'
     b'Host: %b\r\n'
     b'Upgrade: websocket\r\n'
     b'Connection: Upgrade\r\n'
@@ -128,7 +128,8 @@ class RawWebSocket:
         self._closed = False
 
     @staticmethod
-    async def connect(host: str, domain: str, timeout: float = 10.0) -> 'RawWebSocket':
+    async def connect(host: str, domain: str, timeout: float = 10.0,
+                      path: str = '/apiws') -> 'RawWebSocket':
         try:
             start = time.perf_counter()
             reader, writer = await asyncio.wait_for(
@@ -142,7 +143,7 @@ class RawWebSocket:
 
                 ws_key = base64.b64encode(os.urandom(16))
 
-                req = WS_UPGRADE_TEMPLATE % (domain.encode(), ws_key)
+                req = WS_UPGRADE_TEMPLATE % (path.encode(), domain.encode(), ws_key)
                 writer.write(req)
                 await writer.drain()
 
@@ -242,6 +243,20 @@ class RawWebSocket:
                 RawWebSocket.ESTIMATOR.penalty_timeout()
                 raise
 
+    async def send_ping(self, payload: bytes = b''):
+        try:
+            if self._closed:
+                raise ConnectionError("WebSocket closed")
+            frame = self._build_frame(self.OP_PING, payload, mask=True)
+            self.writer.write(frame)
+            start = time.perf_counter()
+            await asyncio.wait_for(self.writer.drain(), timeout=RawWebSocket.ESTIMATOR._current_rto)
+            rtt = (time.perf_counter() - start) * 1000.0
+            RawWebSocket.ESTIMATOR.update(rtt)
+        except asyncio.TimeoutError:
+            RawWebSocket.ESTIMATOR.penalty_timeout()
+            raise
+
     async def recv(self) -> Optional[bytes]:
         while not self._closed:
             opcode, payload = await self._read_frame()
@@ -293,7 +308,7 @@ class RawWebSocket:
             self.writer.write(
                 self._build_frame(self.OP_CLOSE, b'', mask=True))
             start = time.perf_counter()
-            await self.writer.drain()
+            await asyncio.wait_for(self.writer.drain(), timeout=RawWebSocket.ESTIMATOR._current_rto)
             rtt = (time.perf_counter() - start) * 1000.0
             RawWebSocket.ESTIMATOR.update(rtt)
         except Exception:

@@ -28,7 +28,12 @@ _CFPROXY_ENC: List[str] = [
     'clngqrflngqin.com',
     'tjacxbqtj.com',
     'bxaxtxmrw.com',
-    'dmohrsgmohcrwb.com'
+    'dmohrsgmohcrwb.com',
+    'vwbmtmoi.com',
+    'khgrre.com',
+    'ulihssf.com',
+    'tmhqsdqmfpmk.com',
+    'xwuwoqbm.com'
 ]
 _S = ''.join(chr(c) for c in (46, 99, 111, 46, 117, 107))
 
@@ -54,16 +59,41 @@ class ProxyConfig:
     host: str = '127.0.0.1'
     secret: str = field(default_factory=lambda: os.urandom(16).hex())
     dc_redirects: Dict[int, str] = field(default_factory=lambda: {2: '149.154.167.220', 4: '149.154.167.220'})
-    buffer_size: int = 1024 * 1024
+    buffer_size: int = 256 * 1024
     pool_size: int = 4
     fallback_cfproxy: bool = True
-    fallback_cfproxy_priority: bool = True
-    cfproxy_user_domain: str = ''
+    cfproxy_user_domains: List[str] = field(default_factory=list)
+    cfproxy_worker_domains: List[str] = field(default_factory=list)
     fake_tls_domain: str = ''
     proxy_protocol: bool = False
+    ws_keepalive_interval: float = 30.0
 
 
 proxy_config = ProxyConfig()
+
+
+def coerce_domain_list(value) -> List[str]:
+    if isinstance(value, str):
+        items = value.replace(',', ' ').replace(';', ' ').split()
+    elif isinstance(value, (list, tuple)):
+        items: List[str] = []
+        for entry in value:
+            if isinstance(entry, str):
+                items.extend(entry.replace(',', ' ').replace(';', ' ').split())
+    else:
+        return []
+    seen = set()
+    result: List[str] = []
+    for item in items:
+        item = item.strip()
+        if not item:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
 def _fetch_cfproxy_domain_list() -> List[str]:
@@ -119,7 +149,7 @@ def _normalize_domain_pool(domains: List[str]) -> List[str]:
 
 
 def refresh_cfproxy_domains() -> None:
-    if proxy_config.cfproxy_user_domain:
+    if proxy_config.cfproxy_user_domains:
         return
 
     fetched = _fetch_cfproxy_domain_list()
